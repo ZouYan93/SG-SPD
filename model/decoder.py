@@ -23,7 +23,8 @@ class Decoder(nn.Module):
             target_ids_batch: [batch_size, target_seq_len] (解码器目标序列的token ids)
         """
         # 获取编码器输出的特征
-        encoder_outputs = self.encoder(inputs_batch, invert_masks_batch)
+        encoder_outputs = self.encoder(inputs_batch, 
+                                       src_key_padding_mask=invert_masks_batch)
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
         
@@ -57,7 +58,8 @@ class Decoder(nn.Module):
             **kwargs
     ):
         # 获取编码器输出的特征
-        encoder_outputs = self.encoder(inputs_batch, invert_masks_batch)
+        encoder_outputs = self.encoder(inputs_batch, 
+                                       src_key_padding_mask=invert_masks_batch)
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
 

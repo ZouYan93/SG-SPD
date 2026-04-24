@@ -83,8 +83,8 @@ def train_model(dataloaders,
                 print(f'更新最优检查点: {checkpoint_path_best}')
 
     total_time = time.time() - since
-    print(f'总耗时: {total_time:.0f}分{total_time % 60:.0f}秒')
-    print(f'训练耗时: {total_train_time:.0f}分{total_train_time % 60:.0f}秒')
+    print(f'总耗时: {total_time // 60:.0f}分{total_time % 60:.0f}秒')
+    print(f'训练耗时: {total_train_time // 60:.0f}分{total_train_time % 60:.0f}秒')
     print(f'最优验证损失: {best_loss:.4f}')
     torch.save(model.state_dict(), checkpoint_path_last)
     print(f'更新最后检查点: {checkpoint_path_last}')
@@ -344,8 +344,8 @@ if __name__ == '__main__':
             'step1_best_eval_loss': None if step1_metrics['best_eval_loss'] is None else round(step1_metrics['best_eval_loss'], 6),
             'step2_best_eval_loss': None if step2_metrics['best_eval_loss'] is None else round(step2_metrics['best_eval_loss'], 6),
             'final_best_eval_loss': None if final_best_eval_loss is None else round(final_best_eval_loss, 6),
-            'total_params': int(total_params),
-            'trainable_params': int(trainable_params),
+            'total_params_M': int(total_params / 1e6),
+            'trainable_params_M': int(trainable_params / 1e6),
             'best_checkpoint_size_mb': None if best_checkpoint_size_mb is None else round(best_checkpoint_size_mb, 4),
             'last_checkpoint_size_mb': None if last_checkpoint_size_mb is None else round(last_checkpoint_size_mb, 4),
         }
