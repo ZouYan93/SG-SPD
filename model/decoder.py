@@ -3,13 +3,14 @@ import torch.nn as nn
 
 """解码器框架"""
 class Decoder(nn.Module):
-    def __init__(self, pretrained_model, encoder_model, tokenizer=None):
+    def __init__(self, pretrained_name, pretrained_model, encoder_model, tokenizer=None):
         super(Decoder, self).__init__()
+        self.pretrained_name = pretrained_name
         self.pretrained = pretrained_model
         self.encoder = encoder_model
         self.tokenizer = tokenizer
         self.feature_dim = self.encoder.output_dim
-        self.decoder_embedding_size = self.pretrained.d_model
+        self.decoder_embedding_size = self.pretrained.config.d_model
 
         # 线性层将编码器输出的特征维度转换为解码器的输入维度
         self.fc1 = nn.Linear(self.feature_dim, self.decoder_embedding_size)
@@ -26,7 +27,7 @@ class Decoder(nn.Module):
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
         
-        if self.tokenizer is not None:
+        if self.pretrained_name == 'T5':
             input_ids = self.tokenizer("transcribe in English: ", return_tensors="pt").input_ids.to(encoded_embedding.device)
             self.task_embedding = self.pretrained.shared(input_ids).to(encoded_embedding.device)
             task_embedding = self.task_embedding.repeat(encoded_embedding.size(0), 1, 1).to(encoded_embedding.device)
@@ -60,7 +61,7 @@ class Decoder(nn.Module):
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
 
-        if self.tokenizer is not None:
+        if self.pretrained_name == 'T5':
             input_ids = self.tokenizer("transcribe in English: ", return_tensors="pt").input_ids.to(encoded_embedding.device)
             self.task_embedding = self.pretrained.shared(input_ids).to(encoded_embedding.device)
             task_embedding = self.task_embedding.repeat(encoded_embedding.size(0), 1, 1).to(encoded_embedding.device)

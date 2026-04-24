@@ -1,13 +1,13 @@
 import time
 import copy
 import torch
-import tqdm
 import os
 import numpy as np
 import json
 import pickle
 import torch.nn as nn
 import torch.optim as optim
+from tqdm import tqdm
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 from model.decoder import Decoder
@@ -185,7 +185,7 @@ if __name__ == '__main__':
         encoder_dict = ENCODER_REGISTRY[encoder_name]
         print('#' * 50)
         print(f'[信息]实验 {i+1} / {len(args_experiments)}')
-        print(f'[信息]该次训练信息：预训练模型 {pretrained_name}，编码器 {encoder_name}，训练输入类型 {train_input}')
+        print(f'[信息]该次训练信息：预训练模型 {pretrained_name}, 编码器 {encoder_name}, 训练输入类型 {train_input}')
         print('#' * 50)
 
         """独立实验结果保存路径设置"""
@@ -258,14 +258,9 @@ if __name__ == '__main__':
 
         # 编码器设置
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])
-        model = Decoder(pretrained, encoder, tokenizer)
+        model = Decoder(pretrained_name, pretrained, encoder, tokenizer)
         model.to(device)
         model = torch.nn.DataParallel(model, device_ids=device_ids)
-
-        a=[]
-        for name, _ in model.named_parameters():
-            a.append(name)
-        print(f'[信息]模型参数列表: {a}')
 
         """阶段一训练: 先冻结预训练模型部分权重，单独训练编码器和线性层"""
         if pretrained_name == 'Bart' or pretrained_name == 'T5' or pretrained_name == 'Pegasus':
