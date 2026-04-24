@@ -8,13 +8,13 @@ class Decoder(nn.Module):
         self.pretrained = pretrained_model
         self.encoder = encoder_model
         self.tokenizer = tokenizer
-        self.feature_dim = self.encoder.feature_dim
+        self.feature_dim = self.encoder.output_dim
         self.decoder_embedding_size = self.pretrained.d_model
 
         # 线性层将编码器输出的特征维度转换为解码器的输入维度
         self.fc1 = nn.Linear(self.feature_dim, self.decoder_embedding_size)
 
-    def forward(self, input_batch, masks_batch, invert_masks_batch, target_ids_batch):
+    def forward(self, inputs_batch, masks_batch, invert_masks_batch, target_ids_batch):
         """
             input_batch: [batch_size, seq_len, feature_dim]
             masks_batch: [batch_size, seq_len] (解码器输入的注意力掩码, 0表示需要mask的位置)
@@ -22,7 +22,7 @@ class Decoder(nn.Module):
             target_ids_batch: [batch_size, target_seq_len] (解码器目标序列的token ids)
         """
         # 获取编码器输出的特征
-        encoder_outputs = self.encoder(input_batch, invert_masks_batch)
+        encoder_outputs = self.encoder(inputs_batch, invert_masks_batch)
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
         
@@ -41,7 +41,7 @@ class Decoder(nn.Module):
     @torch.no_grad()
     def generate(
             self,
-            input_batch, 
+            inputs_batch, 
             masks_batch, 
             invert_masks_batch, 
             generation_config = None,
@@ -53,10 +53,10 @@ class Decoder(nn.Module):
             streamer= None,
             negative_prompt_ids= None,
             negative_prompt_attention_mask = None,
-            **kwargs,
+            **kwargs
     ):
         # 获取编码器输出的特征
-        encoder_outputs = self.encoder(input_batch, invert_masks_batch)
+        encoder_outputs = self.encoder(inputs_batch, invert_masks_batch)
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
 
@@ -81,6 +81,6 @@ class Decoder(nn.Module):
             streamer=streamer,
             negative_prompt_ids=negative_prompt_ids,
             negative_prompt_attention_mask=negative_prompt_attention_mask,
-            **kwargs,)
+            **kwargs)
 
         return output

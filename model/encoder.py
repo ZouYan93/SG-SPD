@@ -9,7 +9,7 @@ class AdditionalTransformerEncoder(nn.Module):
                  feedforward_dim = 2048, 
                  num_layers = 6):
         super(AdditionalTransformerEncoder, self).__init__()
-        self.feature_dim = in_feature
+        self.output_dim = in_feature
         self.additional_encoder_layer = nn.TransformerEncoderLayer(d_model=in_feature, 
                                                                    nhead=nhead, 
                                                                    dim_feedforward = feedforward_dim, 
@@ -27,7 +27,7 @@ class FullyConnectedEncoder(nn.Module):
                  in_feature, 
                  hidden_dim=[512, 256]):
         super(FullyConnectedEncoder, self).__init__()
-        self.feature_dim = in_feature
+        self.output_dim = hidden_dim[-1]
         layers = []
         layers.append(nn.Linear(in_feature, hidden_dim[0]))
         for i in range(1, len(hidden_dim)):
@@ -42,7 +42,7 @@ class FullyConnectedEncoder(nn.Module):
 class CNNEncoder(nn.Module):
     def __init__(self, in_feature, out_feature):
         super(CNNEncoder, self).__init__()
-        self.feature_dim = in_feature
+        self.output_dim = out_feature
         self.conv1 = nn.Conv1d(in_feature, 64, kernel_size=3, padding=1)
         self.conv2 = nn.Conv1d(64, 128, kernel_size=3, padding=1)
         self.fc = nn.Linear(128, out_feature)
@@ -60,7 +60,7 @@ class CNNEncoder(nn.Module):
 class LSTMEncoder(nn.Module):
     def __init__(self, in_feature, hidden_dim, num_layers):
         super(LSTMEncoder, self).__init__()
-        self.feature_dim = in_feature
+        self.output_dim = hidden_dim
         self.lstm = nn.LSTM(in_feature, hidden_dim, num_layers, batch_first=True)
 
     def forward(self, input_batch, **kwargs):

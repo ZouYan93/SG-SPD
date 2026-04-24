@@ -3,4 +3,4 @@ echo "本脚本还会生成 ZuCo task1-SR v1.0 的三分类 sentiment_labels.jso
 echo "注意：ZuCo task1-SR 中的句子与过滤后的 StanfordSentimentTreebank 句子不重叠。"
 echo "注意：该过程可能耗时较长，请耐心等待..."
 
-python3 ./utils/prepare_dataset.py
+python3 ./utils/data/prepare_dataset.py

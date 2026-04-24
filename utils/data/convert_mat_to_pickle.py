@@ -1,4 +1,3 @@
-import argparse
 import os
 import pickle
 from glob import glob
@@ -81,9 +80,9 @@ class MatToPickleConverter:
 
         print('试验者:', dataset.keys())
         if version == 'v1' and 'ZAB' in dataset:
-            print('num of sent:', len(dataset['ZAB']))
+            print('句子数量:', len(dataset['ZAB']))
         if version == 'v2' and 'YAC' in dataset:
-            print('num of sent:', len(dataset['YAC']))
+            print('句子数量:', len(dataset['YAC']))
 
         return output_path
 
