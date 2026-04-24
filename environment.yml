@@ -12,10 +12,13 @@ dependencies:
   - h5py=3.4.0
   - tqdm=4.62.0
   - matplotlib=3.3.2
-  - transformers=4.6.1
   - nltk=3.5
   - pip=21.0.1
   - openpyxl=3.1.5
   - pip:
+    - transformers==4.46.3
+    - huggingface-hub==0.34.4
+    - evaluate==0.4.6
+    - datasets==4.5.0
     - fuzzy-match==0.0.1
     - rouge==1.0.0

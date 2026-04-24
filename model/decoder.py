@@ -24,7 +24,7 @@ class Decoder(nn.Module):
         """
         # 获取编码器输出的特征
         encoder_outputs = self.encoder(inputs_batch, 
-                                       src_key_padding_mask=invert_masks_batch)
+                                       invert_masks_batch=invert_masks_batch)
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
         
@@ -37,7 +37,7 @@ class Decoder(nn.Module):
 
         # 解码器生成输出
         output = self.pretrained(inputs_embeds=encoded_embedding, attention_mask=masks_batch, 
-                                return_dict=True, labels=target_ids_batch)
+                                 return_dict=True, labels=target_ids_batch)
         return output
     
     @torch.no_grad()
@@ -46,6 +46,7 @@ class Decoder(nn.Module):
             inputs_batch, 
             masks_batch, 
             invert_masks_batch, 
+            target_ids_batch,
             generation_config = None,
             logits_processor = None,
             stopping_criteria = None,
@@ -74,6 +75,7 @@ class Decoder(nn.Module):
         output=self.pretrained.generate(
             inputs_embeds = encoded_embedding,
             attention_mask = masks_batch,
+            labels = target_ids_batch,
             return_dict = True,
             generation_config=generation_config,
             logits_processor=logits_processor,
