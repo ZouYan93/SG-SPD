@@ -7,17 +7,20 @@ MODEL_REGISTRY = {
     'Bart':    {'model_id': 'facebook/bart-large', 
                 'config': "BartConfig", 
                 'generation': "BartForConditionalGeneration", 
-                'tokenizer': "BartTokenizer"
+                'tokenizer': "BartTokenizer", 
+                "local_model_path": "./pretrained_models/Bart"
                 },
     'Pegasus': {'model_id': 'google/pegasus-xsum', 
                 'config': "PegasusConfig", 
                 'generation': "PegasusForConditionalGeneration", 
-                'tokenizer': "PegasusTokenizer"
+                'tokenizer': "PegasusTokenizer", 
+                "local_model_path": "./pretrained_models/Pegasus"
                 },
     'T5':      {'model_id': 't5-large', 
                 'config': "T5Config", 
                 'generation': "T5ForConditionalGeneration", 
-                'tokenizer': "T5Tokenizer"
+                'tokenizer': "T5Tokenizer",
+                'local_model_path': "./pretrained_models/T5"
                 }
 }
 

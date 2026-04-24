@@ -153,19 +153,19 @@ if __name__ == '__main__':
     """加载数据"""
     whole_dataset_dicts = []
     if 'task1' in task_name:
-        dataset_path_task1 = '/dataset/ZuCo/task1-SR/pickle/task1-SR-dataset.pickle'
+        dataset_path_task1 = './dataset/ZuCo/task1-SR/pickle/task1-SR-dataset.pickle'
         with open(dataset_path_task1, 'rb') as handle:
             whole_dataset_dicts.append(pickle.load(handle))
     if 'task2' in task_name:
-        dataset_path_task2 = '/dataset/ZuCo/task2-NR/pickle/task2-NR-dataset.pickle' 
+        dataset_path_task2 = './dataset/ZuCo/task2-NR/pickle/task2-NR-dataset.pickle' 
         with open(dataset_path_task2, 'rb') as handle:
             whole_dataset_dicts.append(pickle.load(handle))
     if 'task3' in task_name:
-        dataset_path_task3 = '/dataset/ZuCo/task3-TSR/pickle/task3-TSR-dataset.pickle' 
+        dataset_path_task3 = './dataset/ZuCo/task3-TSR/pickle/task3-TSR-dataset.pickle' 
         with open(dataset_path_task3, 'rb') as handle:
             whole_dataset_dicts.append(pickle.load(handle))
     if 'taskNRv2' in task_name:
-        dataset_path_taskNRv2 = '/dataset/ZuCo/task2-NR-2.0/pickle/task2-NR-2.0-dataset.pickle' 
+        dataset_path_taskNRv2 = './dataset/ZuCo/task2-NR-2.0/pickle/task2-NR-2.0-dataset.pickle' 
         with open(dataset_path_taskNRv2, 'rb') as handle:
             whole_dataset_dicts.append(pickle.load(handle))
     print(f'[信息]数据加载完成')
@@ -176,14 +176,17 @@ if __name__ == '__main__':
         json.dump(args_without_experiments, out_config, indent = 4)
 
     """多次实验训练"""
-    for arg_experiment in args_experiments:
+    for i, arg_experiment in enumerate(args_experiments):
         experiment_start_time = time.time()
         pretrained_name = arg_experiment['pretrained']
         encoder_name = arg_experiment['encoder']
         train_input = arg_experiment['train_input']
         pretrained_dict = MODEL_REGISTRY[pretrained_name]
         encoder_dict = ENCODER_REGISTRY[encoder_name]
-        print(f'[信息]该次训练信息： 预训练模型 {pretrained_name}，编码器 {encoder_name}，训练输入类型 {train_input}')
+        print('#' * 50)
+        print(f'[信息]实验 {i+1} / {len(args_experiments)}')
+        print(f'[信息]该次训练信息：预训练模型 {pretrained_name}，编码器 {encoder_name}，训练输入类型 {train_input}')
+        print('#' * 50)
 
         """独立实验结果保存路径设置"""
         save_path = os.path.join(save_dir, f'{pretrained_name}_{encoder_name}_{train_input}')
@@ -215,7 +218,7 @@ if __name__ == '__main__':
             arg_experiment = {**arg_experiment, **pretrained_dict, **encoder_dict}
             json.dump(arg_experiment, out_config, indent = 4)
 
-        tokenizer = CLASS_MAP[pretrained_dict['tokenizer']].from_pretrained(pretrained_dict['model_id'])
+        tokenizer = CLASS_MAP[pretrained_dict['tokenizer']].from_pretrained(pretrained_dict['local_model_path'])
 
         """数据加载器设置"""
         # train dataset
@@ -248,17 +251,22 @@ if __name__ == '__main__':
         '''模型设置'''
         # 预训练模型加载设置
         if use_random_init:
-            config = CLASS_MAP[pretrained_dict['config']].from_pretrained(pretrained_dict['model_id'])
+            config = CLASS_MAP[pretrained_dict['config']].from_pretrained(pretrained_dict['local_model_path'])
             pretrained = CLASS_MAP[pretrained_dict['generation']](config)
         else:
-            pretrained = CLASS_MAP[pretrained_dict['generation']].from_pretrained(pretrained_dict['model_id'])
+            pretrained = CLASS_MAP[pretrained_dict['generation']].from_pretrained(pretrained_dict['local_model_path'])
 
         # 编码器设置
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])
         model = Decoder(pretrained, encoder, tokenizer)
         model.to(device)
         model = torch.nn.DataParallel(model, device_ids=device_ids)
-    
+
+        a=[]
+        for name, _ in model.named_parameters():
+            a.append(name)
+        print(f'[信息]模型参数列表: {a}')
+
         """阶段一训练: 先冻结预训练模型部分权重，单独训练编码器和线性层"""
         if pretrained_name == 'Bart' or pretrained_name == 'T5' or pretrained_name == 'Pegasus':
             for name, param in model.named_parameters():
