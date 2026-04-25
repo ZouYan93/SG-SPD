@@ -185,7 +185,6 @@ def get_config(case):
         config = copy.deepcopy(DEFAULT_EVAL_DECODER_CONFIG)
 
         for key in (
-            'checkpoint_path',
             'search_paths_json_path',
             'include_regex',
             'ckpt_list_output_json_path',
@@ -201,13 +200,8 @@ def get_config(case):
         if parsed_args.exclude_regex_list is not None:
             config['exclude_regex_list'] = parsed_args.exclude_regex_list
 
-        if parsed_args.checkpoint_paths is not None:
-            config['checkpoint_paths'] = parsed_args.checkpoint_paths
-        elif config['checkpoint_path']:
-            config['checkpoint_paths'] = [config['checkpoint_path']]
-
-        if (not config['checkpoint_paths']) and (not config['search_paths_json_path']):
-            raise ValueError('eval_decoder 需要提供 --checkpoint_paths/--checkpoint_path 或 --search_paths_json_path')
+        if not config['search_paths_json_path']:
+            raise ValueError('eval_decoder 需要提供 --search_paths_json_path')
 
         return config
 

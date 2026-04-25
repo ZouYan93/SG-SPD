@@ -20,6 +20,8 @@ dependencies:
     - transformers==4.46.3
     - huggingface-hub==0.34.4
     - evaluate==0.4.6
+    - sacrebleu==2.6.0
+    - jiwer==4.0.0
     - datasets==4.5.0
     - fuzzy-match==0.0.1
     - rouge==1.0.0

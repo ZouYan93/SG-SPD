@@ -13,16 +13,18 @@ from model.decoder import Decoder
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import write_sections_to_excel
-from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, load_training_and_experiment_configs, load_dataset_dicts, export_eval_decoder_experiments_json
+from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, \
+                        load_training_and_experiment_configs, load_dataset_dicts, \
+                        export_eval_decoder_experiments_json, load_metrics
 
-metric = load("sacrebleu")
-cer_metric = load("cer")
-wer_metric = load("wer")
 
 def eval_model(dataloaders,
                device,
                tokenizer,
-               model):
+               model,
+               metric,
+               cer_metric,
+               wer_metric):
     start_time = time.time()
     model.eval()
     
@@ -177,11 +179,13 @@ def eval_model(dataloaders,
 if __name__ == '__main__':
     args = get_config('eval_decoder')
 
+    metrics_dir = './metrics'
+    metric, cer_metric, wer_metric = load_metrics(metrics_dir)
+
     """基本参数设置"""
     batch_size = args['batch_size']
     dataset_setting = 'unique_sent'
     test_input = args['test_input']
-    checkpoint_paths = args['checkpoint_paths']
     search_paths_json_path = args['search_paths_json_path']
     include_regex = args['include_regex']
     exclude_regex_list = args['exclude_regex_list']
@@ -289,6 +293,9 @@ if __name__ == '__main__':
             device,
             tokenizer,
             model,
+            metric,
+            cer_metric,
+            wer_metric,
         )
 
         checkpoint_type = os.path.basename(os.path.dirname(ckpt_path))

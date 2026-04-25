@@ -172,7 +172,9 @@ dataset/ZuCo/task1-SR/
 dataset/ZuCo/task2-NR/
 dataset/ZuCo/task2-NR-2.0/
 dataset/ZuCo/task3-TSR/
+metrics/
 results/eval_decoder/
+results/eval_decoder_checkpoints.json
 pretrained_models/
 experiments/decoder/
 

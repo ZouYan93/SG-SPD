@@ -3,6 +3,7 @@ import re
 import json
 import pickle
 from glob import glob
+from evaluate import load
 
 def remove_text_after_token(text, token='</s>'):
     """从文本中移除指定 token 及其后面的内容，常用于清理生成文本中的特殊结束标记"""
@@ -155,3 +156,22 @@ def export_eval_decoder_experiments_json(search_paths,
 
     return checkpoint_paths
 
+
+def _load_evaluate_metric(metric_name, metrics_dir=None):
+    """加载 evaluate 库中的指标，优先尝试从本地目录加载，如果未找到则在线加载（或使用缓存）"""
+    if metrics_dir:
+        local_metric_path = os.path.join(metrics_dir, metric_name)
+        if os.path.isdir(local_metric_path):
+            print(f"[信息]从本地加载指标 {metric_name}: {local_metric_path}")
+            return load(local_metric_path)
+
+    print(f"[信息]在线/缓存加载指标 {metric_name}")
+    return load(metric_name)
+
+
+def load_metrics(metrics_dir=None):
+    """加载 eval_decoder.py 评测用到的所有指标，返回一个包含各指标实例的元组"""
+    metric = _load_evaluate_metric("sacrebleu", metrics_dir)
+    cer_metric = _load_evaluate_metric("cer", metrics_dir)
+    wer_metric = _load_evaluate_metric("wer", metrics_dir)
+    return metric, cer_metric, wer_metric
