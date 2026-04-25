@@ -48,11 +48,12 @@ class CNNEncoder(nn.Module):
         self.fc = nn.Linear(128, out_feature)
 
     def forward(self, input_batch, **kwargs):
-        x = self.conv1(input_batch)
+        x = input_batch.permute(0, 2, 1)
+        x = self.conv1(x)
         x = torch.relu(x)
         x = self.conv2(x)
         x = torch.relu(x)
-        x = torch.mean(x, dim=2)  # 全局平均池化
+        x = x.permute(0, 2, 1)
         x = self.fc(x)
         return x
 
@@ -64,5 +65,5 @@ class LSTMEncoder(nn.Module):
         self.lstm = nn.LSTM(in_feature, hidden_dim, num_layers, batch_first=True)
 
     def forward(self, input_batch, **kwargs):
-        _, (h_n, _) = self.lstm(input_batch)
-        return h_n[-1]  # 返回最后一层的隐藏状态作为编码结果
+        output, (_, _) = self.lstm(input_batch)
+        return output  # 返回所有时间步的输出作为编码结果
