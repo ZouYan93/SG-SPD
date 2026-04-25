@@ -33,10 +33,10 @@ class Decoder(nn.Module):
             self.task_embedding = self.pretrained.shared(input_ids).to(encoded_embedding.device)
             task_embedding = self.task_embedding.repeat(encoded_embedding.size(0), 1, 1).to(encoded_embedding.device)
             encoded_embedding = torch.cat((task_embedding, encoded_embedding), dim=1)
-            input_masks_batch = torch.cat((torch.ones(encoded_embedding.size(0), task_embedding.size(1)).to(encoded_embedding.device), input_masks_batch), dim=1)
-
+            masks_batch = torch.cat((torch.ones(encoded_embedding.size(0), task_embedding.size(1)).to(encoded_embedding.device), masks_batch), dim=1)
+        
         # 解码器生成输出
-        output = self.pretrained(inputs_embeds=encoded_embedding, attention_mask=masks_batch, 
+        output = self.pretrained(inputs_embeds=encoded_embedding, attention_mask=masks_batch,
                                  return_dict=True, labels=target_ids_batch)
         return output
     
@@ -59,8 +59,8 @@ class Decoder(nn.Module):
             **kwargs
     ):
         # 获取编码器输出的特征
-        encoder_outputs = self.encoder(inputs_batch, 
-                                       src_key_padding_mask=invert_masks_batch)
+        encoder_outputs = self.encoder(inputs_batch,
+                                       invert_masks_batch=invert_masks_batch)
         # 投影编码器输出到解码器输入维度
         encoded_embedding = self.fc1(encoder_outputs)
 
@@ -69,7 +69,7 @@ class Decoder(nn.Module):
             self.task_embedding = self.pretrained.shared(input_ids).to(encoded_embedding.device)
             task_embedding = self.task_embedding.repeat(encoded_embedding.size(0), 1, 1).to(encoded_embedding.device)
             encoded_embedding = torch.cat((task_embedding, encoded_embedding), dim=1)
-            input_masks_batch = torch.cat((torch.ones(encoded_embedding.size(0), task_embedding.size(1)).to(encoded_embedding.device), input_masks_batch), dim=1)
+            masks_batch = torch.cat((torch.ones(encoded_embedding.size(0), task_embedding.size(1)).to(encoded_embedding.device), masks_batch), dim=1)
 
         # 解码器生成输出
         output=self.pretrained.generate(

@@ -14,7 +14,7 @@ from model.decoder import Decoder
 from utils.data.data import ZuCo_dataset
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
-from utils.experiment_metrics import append_metrics_to_excel, count_model_parameters, get_file_size_mb
+from utils.experiment_metrics import count_model_parameters, get_file_size_mb, write_sections_to_excel
 
 def train_model(dataloaders, 
                 device, 
@@ -31,6 +31,8 @@ def train_model(dataloaders,
     best_model_weights = copy.deepcopy(model.state_dict())
     best_loss = 1e12
     total_train_time = 0.0
+    train_loss_history = []
+    eval_loss_history = []
 
     for epoch in range(num_epochs):
         print(f'进度 {epoch + 1}/{num_epochs}')
@@ -72,6 +74,10 @@ def train_model(dataloaders,
                 scheduler.step()
 
             epoch_loss = epoch_loss / dataset_sizes[phase]
+            if phase == 'train':
+                train_loss_history.append(float(epoch_loss))
+            else:
+                eval_loss_history.append(float(epoch_loss))
 
             print(f'{phase} Loss: {epoch_loss:.6f}')
 
@@ -98,6 +104,8 @@ def train_model(dataloaders,
         'train_time_sec': total_train_time,
         'train_samples_per_sec': train_samples_per_sec,
         'best_eval_loss': best_loss,
+        'train_loss_history': train_loss_history,
+        'eval_loss_history': eval_loss_history,
     }
     return model, metrics
 
@@ -283,6 +291,8 @@ if __name__ == '__main__':
                 'train_time_sec': 0.0,
                 'train_samples_per_sec': 0.0,
                 'best_eval_loss': None,
+                'train_loss_history': [],
+                'eval_loss_history': [],
             }
             if load_step1_checkpoint:
                 print(f'加载阶段一检查点: {stepone_checkpoint}')
@@ -325,13 +335,15 @@ if __name__ == '__main__':
                                                    checkpoint_path_best = output_checkpoint_name_best, 
                                                    checkpoint_path_last = output_checkpoint_name_last)
 
+        """统计模型参数量、检查点文件大小等信息，并写入Excel表格"""
         total_params, trainable_params = count_model_parameters(trained_model)
         best_checkpoint_size_mb = get_file_size_mb(output_checkpoint_name_best)
         last_checkpoint_size_mb = get_file_size_mb(output_checkpoint_name_last)
         total_time_sec = time.time() - experiment_start_time
         final_best_eval_loss = step2_metrics['best_eval_loss']
+        sheet_name = f'{pretrained_name}_{encoder_name}_{train_input}'
 
-        metric_row = {
+        summary_metrics = {
             'experiment_name': save_name,
             'pretrained': pretrained_name,
             'encoder': encoder_name,
@@ -344,10 +356,46 @@ if __name__ == '__main__':
             'step1_best_eval_loss': None if step1_metrics['best_eval_loss'] is None else round(step1_metrics['best_eval_loss'], 6),
             'step2_best_eval_loss': None if step2_metrics['best_eval_loss'] is None else round(step2_metrics['best_eval_loss'], 6),
             'final_best_eval_loss': None if final_best_eval_loss is None else round(final_best_eval_loss, 6),
-            'total_params_M': int(total_params / 1e6),
-            'trainable_params_M': int(trainable_params / 1e6),
+            'total_params': total_params,
+            'trainable_params': trainable_params,
             'best_checkpoint_size_mb': None if best_checkpoint_size_mb is None else round(best_checkpoint_size_mb, 4),
             'last_checkpoint_size_mb': None if last_checkpoint_size_mb is None else round(last_checkpoint_size_mb, 4),
         }
-        append_metrics_to_excel(metrics_excel_path, metric_row)
+
+        step1_loss_rows = []
+        for idx in range(max(len(step1_metrics['train_loss_history']), len(step1_metrics['eval_loss_history']))):
+            step1_loss_rows.append({
+                'epoch': idx + 1,
+                'train_loss': step1_metrics['train_loss_history'][idx] if idx < len(step1_metrics['train_loss_history']) else None,
+                'eval_loss': step1_metrics['eval_loss_history'][idx] if idx < len(step1_metrics['eval_loss_history']) else None,
+            })
+
+        step2_loss_rows = []
+        for idx in range(max(len(step2_metrics['train_loss_history']), len(step2_metrics['eval_loss_history']))):
+            step2_loss_rows.append({
+                'epoch': idx + 1,
+                'train_loss': step2_metrics['train_loss_history'][idx] if idx < len(step2_metrics['train_loss_history']) else None,
+                'eval_loss': step2_metrics['eval_loss_history'][idx] if idx < len(step2_metrics['eval_loss_history']) else None,
+            })
+
+        sections = [
+            {
+                'type': 'kv',
+                'title': 'summary_metrics',
+                'data': summary_metrics,
+            },
+            {
+                'type': 'table',
+                'title': 'step1_loss_curve',
+                'headers': ['epoch', 'train_loss', 'eval_loss'],
+                'rows': step1_loss_rows,
+            },
+            {
+                'type': 'table',
+                'title': 'step2_loss_curve',
+                'headers': ['epoch', 'train_loss', 'eval_loss'],
+                'rows': step2_loss_rows,
+            },
+        ]
+        write_sections_to_excel(metrics_excel_path, sheet_name, sections, mode='replace')
         print(f'[信息]该次实验指标已写入: {metrics_excel_path}')

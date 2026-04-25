@@ -1,25 +1,5 @@
 import os
-
-
-METRIC_HEADERS = [
-    'experiment_name',
-    'pretrained',
-    'encoder',
-    'train_input',
-    'step1_time_sec',
-    'step2_time_sec',
-    'total_time_sec',
-    'step1_train_samples_per_sec',
-    'step2_train_samples_per_sec',
-    'step1_best_eval_loss',
-    'step2_best_eval_loss',
-    'final_best_eval_loss',
-    'total_params',
-    'trainable_params',
-    'best_checkpoint_size_mb',
-    'last_checkpoint_size_mb',
-]
-
+import re
 
 def count_model_parameters(model):
     total_params = sum(p.numel() for p in model.parameters())
@@ -33,7 +13,7 @@ def get_file_size_mb(file_path):
     return os.path.getsize(file_path) / (1024 * 1024)
 
 
-def append_metrics_to_excel(excel_path, metric_row):
+def _get_workbook(excel_path):
     try:
         from openpyxl import Workbook, load_workbook
     except ImportError as exc:
@@ -41,20 +21,87 @@ def append_metrics_to_excel(excel_path, metric_row):
             'openpyxl 库未安装，请运行 "pip install openpyxl" 来安装该库，以使用 Excel 相关功能。'
         ) from exc
 
-    os.makedirs(os.path.dirname(excel_path), exist_ok=True)
+    parent_dir = os.path.dirname(excel_path)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
 
     if os.path.exists(excel_path):
         workbook = load_workbook(excel_path)
-        sheet = workbook.active
     else:
         workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = 'experiment_metrics'
-        sheet.append(METRIC_HEADERS)
+    return workbook
 
-    if sheet.max_row == 0:
-        sheet.append(METRIC_HEADERS)
 
-    row_values = [metric_row.get(header, None) for header in METRIC_HEADERS]
-    sheet.append(row_values)
+def _sanitize_sheet_name(sheet_name):
+    # Excel 不允许: : \\ / ? * [ ]，且长度最大 31
+    sanitized = re.sub(r'[:\\/?*\[\]]', '_', str(sheet_name))
+    sanitized = sanitized.strip() or 'sheet'
+    return sanitized[:31]
+
+
+def _append_kv_section(sheet, title, data):
+    if title:
+        sheet.append([title])
+    for key, value in data.items():
+        sheet.append([key, value])
+    sheet.append([])
+
+
+def _append_table_section(sheet, title, headers, rows):
+    if title:
+        sheet.append([title])
+    if headers:
+        sheet.append(list(headers))
+    for row in rows:
+        if isinstance(row, dict):
+            sheet.append([row.get(h, None) for h in headers])
+        else:
+            sheet.append(list(row))
+    sheet.append([])
+
+
+def write_sections_to_excel(excel_path, sheet_name, sections, mode='append'):
+    """
+    sections: list[dict]
+      - {'type': 'kv', 'title': str, 'data': dict}
+      - {'type': 'table', 'title': str, 'headers': list[str], 'rows': list[dict|list]}
+    mode:
+      - 'append': 追加到现有 sheet 尾部
+      - 'replace': 清空并重建该 sheet
+    """
+    workbook = _get_workbook(excel_path)
+    sanitized_sheet_name = _sanitize_sheet_name(sheet_name)
+
+    if sanitized_sheet_name in workbook.sheetnames:
+        if mode == 'replace':
+            old_sheet = workbook[sanitized_sheet_name]
+            workbook.remove(old_sheet)
+            sheet = workbook.create_sheet(sanitized_sheet_name)
+        else:
+            sheet = workbook[sanitized_sheet_name]
+            if sheet.max_row > 0:
+                sheet.append([])
+    else:
+        sheet = workbook.create_sheet(sanitized_sheet_name)
+
+    # 若默认 sheet 为空且新建了业务 sheet，则移除默认 sheet，避免空白表
+    if 'Sheet' in workbook.sheetnames and len(workbook.sheetnames) > 1:
+        default_sheet = workbook['Sheet']
+        if default_sheet.max_row == 1 and default_sheet.max_column == 1 and default_sheet['A1'].value is None:
+            workbook.remove(default_sheet)
+
+    for section in sections:
+        section_type = section.get('type')
+        if section_type == 'kv':
+            _append_kv_section(sheet, section.get('title', ''), section.get('data', {}))
+        elif section_type == 'table':
+            _append_table_section(
+                sheet,
+                section.get('title', ''),
+                section.get('headers', []),
+                section.get('rows', []),
+            )
+        else:
+            raise ValueError(f"不支持的 section type: {section_type}")
+
     workbook.save(excel_path)

@@ -25,6 +25,15 @@ DEFAULT_TRAIN_DECODER_CONFIG = {
     ],
 }
 
+DEFAULT_EVAL_DECODER_CONFIG = {
+    'checkpoint_paths': [],
+    'checkpoint_path': None,
+    'test_input': 'EEG',
+    'cuda': 'cuda:0',
+    'seed': 12,
+    'batch_size': 1,
+}
+
 
 def _build_train_decoder_parser():
     parser = argparse.ArgumentParser(
@@ -73,6 +82,30 @@ def _build_train_decoder_parser():
         help='实验列表 JSON 文件路径，文件内容应为 list[dict]',
     )
 
+    return parser
+
+
+def _build_eval_decoder_parser():
+    parser = argparse.ArgumentParser(
+        description='评估 EEG-To-Text 解码器配置'
+    )
+
+    parser.add_argument(
+        '--checkpoint_paths',
+        nargs='+',
+        default=None,
+        help='检查点路径列表，例如: --checkpoint_paths ckpt1.pt ckpt2.pt',
+    )
+    parser.add_argument(
+        '--checkpoint_path',
+        type=str,
+        default=None,
+        help='单个检查点路径（兼容旧参数）',
+    )
+    parser.add_argument('--test_input', type=str, default=None, help='评估输入类型，如 noise/clean')
+    parser.add_argument('--cuda', type=str, default=None, help='CUDA 设备')
+    parser.add_argument('--seed', type=int, default=None, help='随机种子')
+    parser.add_argument('--batch_size', type=int, default=None, help='评估批次大小')
     return parser
 
 
@@ -132,3 +165,25 @@ def get_config(case):
             config['experiments'] = experiments
 
         return config
+
+    if case == 'eval_decoder':
+        parser = _build_eval_decoder_parser()
+        parsed_args = parser.parse_args()
+        config = copy.deepcopy(DEFAULT_EVAL_DECODER_CONFIG)
+
+        for key in ('checkpoint_path', 'test_input', 'cuda', 'seed', 'batch_size'):
+            value = getattr(parsed_args, key)
+            if value is not None:
+                config[key] = value
+
+        if parsed_args.checkpoint_paths is not None:
+            config['checkpoint_paths'] = parsed_args.checkpoint_paths
+        elif config['checkpoint_path']:
+            config['checkpoint_paths'] = [config['checkpoint_path']]
+
+        if not config['checkpoint_paths']:
+            raise ValueError('eval_decoder 需要提供 --checkpoint_paths 或 --checkpoint_path')
+
+        return config
+
+    raise ValueError(f'不支持的配置类型: {case}')
