@@ -1,0 +1,14 @@
+[
+ {"pretrained":"Bart",   "encoder":"Transformer","train_input":"EEG"},
+ {"pretrained":"Bart",   "encoder":"MLP",        "train_input":"EEG"},
+ {"pretrained":"Bart",   "encoder":"CNN",        "train_input":"EEG"},
+ {"pretrained":"Bart",   "encoder":"LSTM",       "train_input":"EEG"},
+ {"pretrained":"Pegasus","encoder":"Transformer","train_input":"EEG"},
+ {"pretrained":"Pegasus","encoder":"MLP",        "train_input":"EEG"},
+ {"pretrained":"Pegasus","encoder":"CNN",        "train_input":"EEG"},
+ {"pretrained":"Pegasus","encoder":"LSTM",       "train_input":"EEG"},
+ {"pretrained":"T5",     "encoder":"Transformer","train_input":"EEG"},
+ {"pretrained":"T5",     "encoder":"MLP",        "train_input":"EEG"},
+ {"pretrained":"T5",     "encoder":"CNN",        "train_input":"EEG"},
+ {"pretrained":"T5",     "encoder":"LSTM",       "train_input":"EEG"}
+]
