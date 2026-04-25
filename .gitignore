@@ -167,7 +167,11 @@ cython_debug/
 
 # custom
 .vscode/
-dataset/
+dataset/stanfordsentiment/
+dataset/ZuCo/task1-SR/
+dataset/ZuCo/task2-NR/
+dataset/ZuCo/task2-NR-2.0/
+dataset/ZuCo/task3-TSR/
 results/eval_decoder/
 pretrained_models/
 experiments/decoder/

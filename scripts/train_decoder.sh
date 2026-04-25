@@ -8,7 +8,7 @@ python3 train_decoder.py --task_name task1_task2_task3 \
     --cuda cuda:0 \
     --subjects ALL \
     --eeg_type GD \
-    --batch_size 32 \
+    --batch_size 16 \
     --num_epoch_step1 20 \
     --num_epoch_step2 30 \
     --learning_rate_step1 0.00002 \
