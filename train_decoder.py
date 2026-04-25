@@ -247,7 +247,10 @@ if __name__ == '__main__':
             config = CLASS_MAP[pretrained_dict['config']].from_pretrained(pretrained_dict['local_model_path'])
             pretrained = CLASS_MAP[pretrained_dict['generation']](config)
         else:
-            pretrained = CLASS_MAP[pretrained_dict['generation']].from_pretrained(pretrained_dict['local_model_path'])
+            pretrained = CLASS_MAP[pretrained_dict['generation']].from_pretrained(
+                pretrained_dict['local_model_path'],
+                use_safetensors=False,
+            )
 
         # 编码器设置
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])

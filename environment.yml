@@ -15,6 +15,7 @@ dependencies:
   - nltk=3.5
   - pip=21.0.1
   - openpyxl=3.1.5
+  - sentencepiece=0.1.99
   - pip:
     - transformers==4.46.3
     - huggingface-hub==0.34.4

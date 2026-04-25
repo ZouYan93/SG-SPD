@@ -26,8 +26,10 @@ DEFAULT_TRAIN_DECODER_CONFIG = {
 }
 
 DEFAULT_EVAL_DECODER_CONFIG = {
-    'checkpoint_paths': [],
-    'checkpoint_path': None,
+    'search_paths_json_path': './results/eval_decoder_search_paths.json',
+    'include_regex': r'.*\.pt$',
+    'exclude_regex_list': [r'/last/'],
+    'ckpt_list_output_json_path': './results/eval_decoder_checkpoints.json',
     'test_input': 'EEG',
     'cuda': 'cuda:0',
     'seed': 12,
@@ -89,18 +91,29 @@ def _build_eval_decoder_parser():
     parser = argparse.ArgumentParser(
         description='评估 EEG-To-Text 解码器配置'
     )
-
     parser.add_argument(
-        '--checkpoint_paths',
-        nargs='+',
-        default=None,
-        help='检查点路径列表，例如: --checkpoint_paths ckpt1.pt ckpt2.pt',
-    )
-    parser.add_argument(
-        '--checkpoint_path',
+        '--search_paths_json_path',
         type=str,
         default=None,
-        help='单个检查点路径（兼容旧参数）',
+        help='JSON 文件路径，文件中存放待搜索的路径列表（用于自动收集 ckpt）',
+    )
+    parser.add_argument(
+        '--include_regex',
+        type=str,
+        default=None,
+        help='ckpt 包含正则，默认匹配 .pt 文件',
+    )
+    parser.add_argument(
+        '--exclude_regex_list',
+        nargs='*',
+        default=None,
+        help='ckpt 排除正则列表，例如 --exclude_regex_list /last/ /Bart_MLP_EEG/',
+    )
+    parser.add_argument(
+        '--ckpt_list_output_json_path',
+        type=str,
+        default=None,
+        help='自动收集后的 ckpt 列表导出路径',
     )
     parser.add_argument('--test_input', type=str, default=None, help='评估输入类型，如 noise/clean')
     parser.add_argument('--cuda', type=str, default=None, help='CUDA 设备')
@@ -171,18 +184,30 @@ def get_config(case):
         parsed_args = parser.parse_args()
         config = copy.deepcopy(DEFAULT_EVAL_DECODER_CONFIG)
 
-        for key in ('checkpoint_path', 'test_input', 'cuda', 'seed', 'batch_size'):
+        for key in (
+            'checkpoint_path',
+            'search_paths_json_path',
+            'include_regex',
+            'ckpt_list_output_json_path',
+            'test_input',
+            'cuda',
+            'seed',
+            'batch_size',
+        ):
             value = getattr(parsed_args, key)
             if value is not None:
                 config[key] = value
+
+        if parsed_args.exclude_regex_list is not None:
+            config['exclude_regex_list'] = parsed_args.exclude_regex_list
 
         if parsed_args.checkpoint_paths is not None:
             config['checkpoint_paths'] = parsed_args.checkpoint_paths
         elif config['checkpoint_path']:
             config['checkpoint_paths'] = [config['checkpoint_path']]
 
-        if not config['checkpoint_paths']:
-            raise ValueError('eval_decoder 需要提供 --checkpoint_paths 或 --checkpoint_path')
+        if (not config['checkpoint_paths']) and (not config['search_paths_json_path']):
+            raise ValueError('eval_decoder 需要提供 --checkpoint_paths/--checkpoint_path 或 --search_paths_json_path')
 
         return config
 

@@ -3,6 +3,7 @@ import torch
 from torch.utils.data import DataLoader
 import time
 import os
+import json
 from tqdm import tqdm
 from utils.data.data import ZuCo_dataset
 from nltk.translate.bleu_score import corpus_bleu
@@ -12,7 +13,7 @@ from model.decoder import Decoder
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import write_sections_to_excel
-from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, load_training_and_experiment_configs, load_dataset_dicts
+from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, load_training_and_experiment_configs, load_dataset_dicts, export_eval_decoder_experiments_json
 
 metric = load("sacrebleu")
 cer_metric = load("cer")
@@ -143,7 +144,6 @@ def eval_model(dataloaders,
     total_time = end_time - start_time
     print(f"[信息]评估耗时 {total_time / 60} 分钟.")
 
-     # score_results (only fix teacher-forcing)
     rouge1 = rouge_scores['rouge-1'] if rouge_scores else {'p': None, 'r': None, 'f': None}
     rouge1_previous = rouge_scores_previous['rouge-1'] if rouge_scores_previous else {'p': None, 'r': None, 'f': None}
 
@@ -180,9 +180,41 @@ if __name__ == '__main__':
     """基本参数设置"""
     batch_size = args['batch_size']
     dataset_setting = 'unique_sent'
-    checkpoint_paths = args['checkpoint_paths']
     test_input = args['test_input']
+    checkpoint_paths = args['checkpoint_paths']
+    search_paths_json_path = args['search_paths_json_path']
+    include_regex = args['include_regex']
+    exclude_regex_list = args['exclude_regex_list']
+    ckpt_list_output_json_path = args['ckpt_list_output_json_path']
+
+    if search_paths_json_path:
+        with open(search_paths_json_path, 'r', encoding='utf-8') as f:
+            json_obj = json.load(f)
+
+        if isinstance(json_obj, list):
+            search_paths = json_obj
+        elif isinstance(json_obj, dict):
+            if 'search_paths' in json_obj:
+                search_paths = json_obj['search_paths']
+            elif 'paths' in json_obj:
+                search_paths = json_obj['paths']
+            else:
+                raise ValueError(f'无法识别 JSON 键，需包含 search_paths 或 paths: {search_paths_json_path}')
+        else:
+            raise ValueError(f'路径 JSON 格式错误，需为 list 或 dict: {search_paths_json_path}')
+
+        checkpoint_paths = export_eval_decoder_experiments_json(
+            search_paths=search_paths,
+            output_json_path=ckpt_list_output_json_path,
+            include_regex=include_regex,
+            exclude_regex_list=exclude_regex_list,
+        )
+
+    if not checkpoint_paths:
+        raise ValueError('未找到任何 checkpoint，请检查输入路径和正则过滤条件')
+
     print("测试输入为:", test_input)
+    print(f"[信息]待评估 ckpt 数量: {len(checkpoint_paths)}")
     
     """设置随机种子以确保结果可复现"""
     seed = args['seed']
@@ -216,7 +248,7 @@ if __name__ == '__main__':
         output_root = os.path.join('./results/eval_decoder', run_name)
         os.makedirs(output_root, exist_ok=True)
         results_excel_path = os.path.join(output_root, 'results.xlsx')
-        sheet_name = f'{pretrained_name}_{encoder_name}_{train_input}'
+        sheet_name = f'{pretrained_name}_{encoder_name}_{train_input}_{test_input}'
 
         print('#' * 50)
         print(f'[信息]正在评估: {ckpt_path}')
@@ -241,7 +273,10 @@ if __name__ == '__main__':
         test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
         dataloaders = {'test': test_dataloader}
 
-        pretrained = CLASS_MAP[pretrained_dict['generation']].from_pretrained(pretrained_dict['local_model_path'])
+        pretrained = CLASS_MAP[pretrained_dict['generation']].from_pretrained(
+            pretrained_dict['local_model_path'],
+            use_safetensors=False,
+        )
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])
         model = Decoder(pretrained_name, pretrained, encoder, tokenizer)
         state_dict = torch.load(ckpt_path, map_location=device)
