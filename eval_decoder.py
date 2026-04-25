@@ -15,7 +15,7 @@ from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import write_sections_to_excel
 from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, \
                         load_training_and_experiment_configs, load_dataset_dicts, \
-                        export_eval_decoder_experiments_json, load_metrics
+                        export_eval_decoder_experiments_json, load_metrics, ensure_torch_generate_compat
 
 
 def eval_model(dataloaders,
@@ -178,6 +178,7 @@ def eval_model(dataloaders,
 
 if __name__ == '__main__':
     args = get_config('eval_decoder')
+    ensure_torch_generate_compat()
 
     metrics_dir = './metrics'
     metric, cer_metric, wer_metric = load_metrics(metrics_dir)

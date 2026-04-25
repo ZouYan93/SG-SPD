@@ -2,8 +2,31 @@ import os
 import re
 import json
 import pickle
+import torch
 from glob import glob
 from evaluate import load
+
+
+def ensure_torch_generate_compat():
+    """为旧版 torch 提供 generate 相关兼容能力。"""
+    if hasattr(torch, 'isin'):
+        return
+
+    def _torch_isin(elements, test_elements):
+        if not torch.is_tensor(elements):
+            elements = torch.as_tensor(elements)
+        if not torch.is_tensor(test_elements):
+            test_elements = torch.as_tensor(test_elements, device=elements.device)
+        else:
+            test_elements = test_elements.to(elements.device)
+
+        if test_elements.numel() == 0:
+            return torch.zeros_like(elements, dtype=torch.bool)
+
+        view_shape = [1] * elements.dim() + [-1]
+        return (elements.unsqueeze(-1) == test_elements.reshape(view_shape)).any(dim=-1)
+
+    torch.isin = _torch_isin
 
 def remove_text_after_token(text, token='</s>'):
     """从文本中移除指定 token 及其后面的内容，常用于清理生成文本中的特殊结束标记"""
