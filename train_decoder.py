@@ -1,10 +1,8 @@
 import time
-import copy
 import torch
 import os
 import numpy as np
 import json
-import pickle
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
@@ -15,7 +13,8 @@ from utils.data.data import ZuCo_dataset
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import count_model_parameters, get_file_size_mb, write_sections_to_excel
-from utils.utils import load_dataset_dicts
+from utils.utils import load_dataset_dicts, state_dict_to_cpu, release_cuda_memory
+
 
 def train_model(dataloaders, 
                 device, 
@@ -29,7 +28,7 @@ def train_model(dataloaders,
                 checkpoint_path_best = './checkpoints/decoder/best/decoder.pt', 
                 checkpoint_path_last = './checkpoints/decoder/last/decoder.pt'):
     since = time.time()
-    best_model_weights = copy.deepcopy(model.state_dict())
+    best_model_weights = state_dict_to_cpu(model.state_dict())
     best_loss = 1e12
     total_train_time = 0.0
     train_loss_history = []
@@ -57,7 +56,7 @@ def train_model(dataloaders,
                 # torch会自动忽略标签为-100的token
                 target_ids_batch[target_ids_batch == tokenizer.pad_token_id] = -100
 
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
                 with torch.set_grad_enabled(phase == 'train'):
                     output = model(inputs_batch, masks_batch, invert_masks_batch, target_ids_batch)
                     
@@ -84,7 +83,7 @@ def train_model(dataloaders,
 
             if phase == 'eval' and epoch_loss < best_loss:
                 best_loss = epoch_loss
-                best_model_weights = copy.deepcopy(model.state_dict())
+                best_model_weights = state_dict_to_cpu(model.state_dict())
                 # 保存当前最优模型权重
                 torch.save(model.state_dict(), checkpoint_path_best)
                 print(f'更新最优检查点: {checkpoint_path_best}')
@@ -303,6 +302,7 @@ if __name__ == '__main__':
                                                num_epochs=num_epochs_step1, 
                                                checkpoint_path_best = output_checkpoint_name_best, 
                                                checkpoint_path_last = output_checkpoint_name_last)
+            release_cuda_memory(optimizer_step1, exp_lr_scheduler_step1)
 
         """阶段二训练: 更新整个模型进行几次迭代"""
         for name, param in model.named_parameters():
@@ -387,3 +387,24 @@ if __name__ == '__main__':
         ]
         write_sections_to_excel(metrics_excel_path, sheet_name, sections, mode='replace')
         print(f'[信息]该次实验指标已写入: {metrics_excel_path}')
+        release_cuda_memory(
+            trained_model,
+            model,
+            pretrained,
+            encoder,
+            tokenizer,
+            train_set,
+            dev_set,
+            train_dataloader,
+            val_dataloader,
+            dataloaders,
+            optimizer_step2,
+            exp_lr_scheduler_step2,
+            criterion,
+            step1_metrics,
+            step2_metrics,
+            sections,
+            step1_loss_rows,
+            step2_loss_rows,
+            summary_metrics,
+        )

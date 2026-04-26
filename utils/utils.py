@@ -1,5 +1,6 @@
 import os
 import re
+import gc
 import json
 import pickle
 import torch
@@ -27,6 +28,7 @@ def ensure_torch_generate_compat():
         return (elements.unsqueeze(-1) == test_elements.reshape(view_shape)).any(dim=-1)
 
     torch.isin = _torch_isin
+
 
 def remove_text_after_token(text, token='</s>'):
     """从文本中移除指定 token 及其后面的内容，常用于清理生成文本中的特殊结束标记"""
@@ -198,3 +200,17 @@ def load_metrics(metrics_dir=None):
     cer_metric = _load_evaluate_metric("cer", metrics_dir)
     wer_metric = _load_evaluate_metric("wer", metrics_dir)
     return metric, cer_metric, wer_metric
+
+
+def state_dict_to_cpu(state_dict):
+    """将模型状态字典中的所有张量移动到 CPU 上，返回新的字典"""
+    return {k: v.detach().cpu() for k, v in state_dict.items()}
+
+
+def release_cuda_memory(*objs):
+    """删除对象并清理 CUDA 内存，适用于训练或评估过程中需要手动释放显存的场景"""
+    for obj in objs:
+        del obj
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
