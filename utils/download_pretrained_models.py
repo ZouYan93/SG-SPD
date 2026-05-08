@@ -48,6 +48,12 @@ def download_models(pretrained_names: List[str], output_dir: str) -> Dict[str, s
         save_dir = os.path.join(output_dir, name)
         os.makedirs(save_dir, exist_ok=True)
 
+        # 检查是否已经下载过该模型（通过检查 config.json 是否存在来简单判断）
+        if os.path.exists(os.path.join(save_dir, 'config.json')):
+            print(f'[跳过] {name} 已经存在于 {save_dir}，跳过下载')
+            local_path_map[name] = save_dir
+            continue
+
         print(f'[下载] {name}: {model_id}')
         local_snapshot_dir = snapshot_download(
             repo_id=model_id,

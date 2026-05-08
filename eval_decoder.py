@@ -129,13 +129,11 @@ def eval_model(dataloaders,
         rouge_scores_previous = None
 
     """ 计算 WER 分数 """
-    #wer = WordErrorRate()
     wer_scores = wer_metric.compute(predictions=pred_string_list, references=target_string_list)
     wer_scores_previous = wer_metric.compute(predictions=pred_string_list_previous, references=target_string_list)
     print("[信息]WER 分数: ", wer_scores)
     print("[信息]WER 分数(teacher-forcing): ", wer_scores_previous)
     
-
     """ 计算 CER 分数 """
     cer_scores = cer_metric.compute(predictions=pred_string_list, references=target_string_list)
     cer_scores_previous = cer_metric.compute(predictions=pred_string_list_previous, references=target_string_list)

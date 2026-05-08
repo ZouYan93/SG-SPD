@@ -9,3 +9,13 @@ python3 eval_decoder.py \
     --cuda cuda:0 \
     --batch_size 1 \
     --seed 12
+
+python3 eval_decoder.py \
+    --search_paths_json_path ./results/eval_decoder_search_paths.json \
+    --include_regex ".*\\.pt$" \
+    --exclude_regex_list "/last/" \
+    --ckpt_list_output_json_path ./results/eval_decoder_checkpoints.json \
+    --test_input noise \
+    --cuda cuda:0 \
+    --batch_size 1 \
+    --seed 12
