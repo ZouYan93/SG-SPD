@@ -13,7 +13,7 @@ from utils.data.data import ZuCo_dataset
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import count_model_parameters, get_file_size_mb, write_sections_to_excel
-from utils.utils import load_dataset_dicts, state_dict_to_cpu, release_cuda_memory
+from utils.utils import load_dataset_dicts, state_dict_to_cpu, release_cuda_memory, get_enhancement_name
 
 
 def train_model(dataloaders, 
@@ -59,8 +59,6 @@ def train_model(dataloaders,
                 optimizer.zero_grad(set_to_none=True)
                 with torch.set_grad_enabled(phase == 'train'):
                     output = model(inputs_batch, masks_batch, invert_masks_batch, target_ids_batch)
-                    
-                    # TODO：可以增加损失，如跨模态对齐等, 后续即插即用
                     loss = output.loss
                     if phase == 'train':
                         loss.sum().backward()
@@ -173,22 +171,26 @@ if __name__ == '__main__':
         pretrained_name = arg_experiment['pretrained']
         encoder_name = arg_experiment['encoder']
         train_input = arg_experiment['train_input']
+        has_enhancement_config = 'enhancement' in arg_experiment
+        enhancement_config = arg_experiment.get('enhancement', None)
+        enhancement_name = get_enhancement_name(enhancement_config)
         pretrained_dict = MODEL_REGISTRY[pretrained_name]
         encoder_dict = ENCODER_REGISTRY[encoder_name]
         print('#' * 50)
         print(f'[信息]实验 {i+1} / {len(args_experiments)}')
-        print(f'[信息]该次训练信息：预训练模型 {pretrained_name}, 编码器 {encoder_name}, 训练输入类型 {train_input}')
+        print(f'[信息]该次训练信息：预训练模型 {pretrained_name}, 编码器 {encoder_name}, 训练输入类型 {train_input}, 增强配置 {enhancement_name}')
         print('#' * 50)
 
         """独立实验结果保存路径设置"""
-        save_path = os.path.join(save_dir, f'{pretrained_name}_{encoder_name}_{train_input}')
+        save_suffix = f'_{enhancement_name}' if has_enhancement_config else ''
+        save_path = os.path.join(save_dir, f'{pretrained_name}_{encoder_name}_{train_input}{save_suffix}')
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
         if skip_step_one:
-            save_name = f'{pretrained_name}_{encoder_name}_{train_input}_skip'
+            save_name = f'{pretrained_name}_{encoder_name}_{train_input}{save_suffix}_skip'
         else:
-            save_name = f'{pretrained_name}_{encoder_name}_{train_input}'
+            save_name = f'{pretrained_name}_{encoder_name}_{train_input}{save_suffix}'
 
         if use_random_init:
             save_name =  save_name + '_randinit'
@@ -253,7 +255,7 @@ if __name__ == '__main__':
 
         # 编码器设置
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])
-        model = Decoder(pretrained_name, pretrained, encoder, tokenizer)
+        model = Decoder(pretrained_name, pretrained, encoder, tokenizer, enhancement_config=enhancement_config)
         model.to(device)
         model = torch.nn.DataParallel(model, device_ids=device_ids)
 
@@ -330,12 +332,15 @@ if __name__ == '__main__':
         total_time_sec = time.time() - experiment_start_time
         final_best_eval_loss = step2_metrics['best_eval_loss']
         sheet_name = f'{pretrained_name}_{encoder_name}_{train_input}'
+        if enhancement_name != 'baseline':
+            sheet_name = f'{sheet_name}_{enhancement_name}'
 
         summary_metrics = {
             'experiment_name': save_name,
             'pretrained': pretrained_name,
             'encoder': encoder_name,
             'train_input': train_input,
+            'enhancement': enhancement_name,
             'step1_time_sec': round(step1_metrics['train_time_sec'], 4),
             'step2_time_sec': round(step2_metrics['train_time_sec'], 4),
             'total_time_sec': round(total_time_sec, 4),

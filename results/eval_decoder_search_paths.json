@@ -1,3 +1,6 @@
 [
- "./experiments/decoder/task1_task2_task3_20260429-033852"
+ "./experiments/decoder/task1_task2_task3_20260511-120059/T5_CNN_EEG_alignF",
+ "./experiments/decoder/task1_task2_task3_20260511-120059/T5_CNN_EEG_alignT",
+ "./experiments/decoder/task1_task2_task3_20260511-120059/T5_CNN_EEG_attn_alignT",
+ "./experiments/decoder/task1_task2_task3_20260511-120059/T5_CNN_EEG_noisecon"
 ]

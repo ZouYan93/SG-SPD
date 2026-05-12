@@ -13,5 +13,5 @@ python3 train_decoder.py --task_name task1_task2_task3 \
     --num_epoch_step2 30 \
     --learning_rate_step1 0.00002 \
     --learning_rate_step2 0.00002 \
-    --seed 12 \
+    --seed 312 \
     --experiments_json_path ./experiments/train_decoder_experiments.json

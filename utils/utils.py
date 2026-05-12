@@ -214,3 +214,22 @@ def release_cuda_memory(*objs):
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+def get_enhancement_name(enhancement_config):
+    """根据增强配置生成一个简洁的名称，便于在实验中区分不同的增强方法"""
+    if not enhancement_config:
+        return 'baseline'
+    if enhancement_config.get('name'):
+        return enhancement_config['name']
+
+    names = []
+    if enhancement_config.get('attention', {}).get('enabled', False):
+        names.append('attn')
+    if enhancement_config.get('semantic_alignment', {}).get('enabled', False):
+        if enhancement_config['semantic_alignment'].get('soft_negative', False):
+            names.append('alignT')
+        else:
+            names.append('alignF')
+    if enhancement_config.get('noise_contrast', {}).get('enabled', False):
+        names.append('noisecon')
+    return '_'.join(names) if names else 'baseline'

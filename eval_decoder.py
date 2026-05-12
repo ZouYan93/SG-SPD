@@ -15,7 +15,8 @@ from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import write_sections_to_excel
 from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, \
                         load_training_and_experiment_configs, load_dataset_dicts, \
-                        export_eval_decoder_experiments_json, load_metrics, ensure_torch_generate_compat
+                        export_eval_decoder_experiments_json, load_metrics, \
+                        ensure_torch_generate_compat, get_enhancement_name
 
 
 def eval_model(dataloaders,
@@ -245,6 +246,8 @@ if __name__ == '__main__':
         train_input = experiment_config['train_input']
         pretrained_name = experiment_config['pretrained']
         encoder_name = experiment_config['encoder']
+        enhancement_config = experiment_config.get('enhancement', None)
+        enhancement_name = get_enhancement_name(enhancement_config)
         pretrained_dict = MODEL_REGISTRY[pretrained_name]
         encoder_dict = ENCODER_REGISTRY[encoder_name]
 
@@ -252,6 +255,8 @@ if __name__ == '__main__':
         os.makedirs(output_root, exist_ok=True)
         results_excel_path = os.path.join(output_root, 'results.xlsx')
         sheet_name = f'{pretrained_name}_{encoder_name}_{train_input}_{test_input}'
+        if enhancement_name != 'baseline':
+            sheet_name = f'{sheet_name}_{enhancement_name}'
 
         print('#' * 50)
         print(f'[信息]正在评估: {ckpt_path}')
@@ -281,7 +286,7 @@ if __name__ == '__main__':
             use_safetensors=False,
         )
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])
-        model = Decoder(pretrained_name, pretrained, encoder, tokenizer)
+        model = Decoder(pretrained_name, pretrained, encoder, tokenizer, enhancement_config=enhancement_config)
         state_dict = torch.load(ckpt_path, map_location=device)
         new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
         model.load_state_dict(new_state_dict)

@@ -1,0 +1,110 @@
+[
+  {
+    "pretrained": "T5",
+    "encoder": "CNN",
+    "train_input": "EEG",
+    "enhancement": {
+      "name": "attn",
+      "attention": {
+        "enabled": true,
+        "in_feature": 840,
+        "num_channels": 105,
+        "num_bands": 8,
+        "reduction": 8,
+        "dropout": 0.1
+      }
+    }
+  },
+  {
+    "pretrained": "T5",
+    "encoder": "CNN",
+    "train_input": "EEG",
+    "enhancement": {
+      "name": "alignF",
+      "semantic_alignment": {
+        "enabled": true,
+        "weight": 0.1,
+        "temperature": 0.07,
+        "soft_negative": false
+      }
+    }
+  },
+  {
+    "pretrained": "T5",
+    "encoder": "CNN",
+    "train_input": "EEG",
+    "enhancement": {
+      "name": "alignT",
+      "semantic_alignment": {
+        "enabled": true,
+        "weight": 0.1,
+        "temperature": 0.07,
+        "soft_negative": true
+      }
+    }
+  },
+  {
+    "pretrained": "T5",
+    "encoder": "CNN",
+    "train_input": "EEG",
+    "enhancement": {
+      "name": "noisecon",
+      "noise_contrast": {
+        "enabled": true,
+        "weight": 0.1,
+        "margin": 0.2,
+        "noise_std": 1.0
+      }
+    }
+  },
+  {
+    "pretrained": "T5",
+    "encoder": "CNN",
+    "train_input": "EEG",
+    "enhancement": {
+      "name": "attn_alignT",
+      "attention": {
+        "enabled": true,
+        "in_feature": 840,
+        "num_channels": 105,
+        "num_bands": 8,
+        "reduction": 8,
+        "dropout": 0.1
+      },
+      "semantic_alignment": {
+        "enabled": true,
+        "weight": 0.1,
+        "temperature": 0.07,
+        "soft_negative": true
+      }
+    }
+  },
+  {
+    "pretrained": "T5",
+    "encoder": "CNN",
+    "train_input": "EEG",
+    "enhancement": {
+      "name": "attn_alignT_noisecon",
+      "attention": {
+        "enabled": true,
+        "in_feature": 840,
+        "num_channels": 105,
+        "num_bands": 8,
+        "reduction": 8,
+        "dropout": 0.1
+      },
+      "semantic_alignment": {
+        "enabled": true,
+        "weight": 0.1,
+        "temperature": 0.07,
+        "soft_negative": true
+      },
+      "noise_contrast": {
+        "enabled": true,
+        "weight": 0.1,
+        "margin": 0.2,
+        "noise_std": 1.0
+      }
+    }
+  }
+]
