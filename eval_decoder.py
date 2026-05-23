@@ -13,6 +13,7 @@ from model.decoder import Decoder
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import write_sections_to_excel
+from train_decoder4 import apply_step2_lora_if_needed
 from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, \
                         load_training_and_experiment_configs, load_dataset_dicts, \
                         export_eval_decoder_experiments_json, load_metrics, \
@@ -37,12 +38,49 @@ def eval_model(dataloaders,
     pred_string_list_previous = []
     output_rows = []
     with torch.no_grad():
-        for idx, (inputs, seq_len, masks, invert_masks, target_ids,
-                  target_mask, sentiment_labels) in enumerate(tqdm(dataloaders['test'])):
+        for idx, batch in enumerate(tqdm(dataloaders['test'])):
+            topic_labels = None
+            length_values = None
+            surprisal_values = None
+            if len(batch) >= 13:
+                (
+                    inputs,
+                    seq_len,
+                    masks,
+                    invert_masks,
+                    target_ids,
+                    target_mask,
+                    sentiment_labels,
+                    prior_ids,
+                    _,
+                    _,
+                    topic_labels,
+                    length_values,
+                    surprisal_values,
+                ) = batch[:13]
+                prior_ids_batch = prior_ids.to(device)
+            elif len(batch) >= 10:
+                inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels, prior_ids = batch[:8]
+                prior_ids_batch = prior_ids.to(device)
+            elif len(batch) == 9:
+                inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels, prior_ids, _ = batch
+                prior_ids_batch = prior_ids.to(device)
+            elif len(batch) == 8:
+                inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels, prior_ids = batch
+                prior_ids_batch = prior_ids.to(device)
+            elif len(batch) == 7:
+                inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels = batch
+                prior_ids_batch = None
+            else:
+                raise ValueError(f'Unexpected eval batch size: {len(batch)}')
             inputs_batch = inputs.to(device).float()
             masks_batch = masks.to(device)
             invert_masks_batch = invert_masks.to(device)
             target_ids_batch = target_ids.to(device)
+            sentiment_labels_batch = sentiment_labels.to(device)
+            topic_labels_batch = None if topic_labels is None else topic_labels.to(device)
+            length_values_batch = None if length_values is None else length_values.to(device)
+            surprisal_values_batch = None if surprisal_values is None else surprisal_values.to(device)
             target_tokens = tokenizer.convert_ids_to_tokens(target_ids_batch[0].tolist(), skip_special_tokens=True)
             target_string = tokenizer.decode(target_ids_batch[0], skip_special_tokens=True)
 
@@ -52,8 +90,21 @@ def eval_model(dataloaders,
             target_ids_batch[target_ids_batch == tokenizer.pad_token_id] = -100 
 
             """Teacher-forcing 解码推理"""
-            output = model(inputs_batch, masks_batch, invert_masks_batch, target_ids_batch)
+            output = model(
+                inputs_batch,
+                masks_batch,
+                invert_masks_batch,
+                target_ids_batch,
+                prior_ids_batch=prior_ids_batch,
+                sentiment_labels_batch=sentiment_labels_batch,
+                topic_labels_batch=topic_labels_batch,
+                length_values_batch=length_values_batch,
+                surprisal_values_batch=surprisal_values_batch,
+            )
             logits_previous = output.logits
+            prompt_length = getattr(output, 'prompt_length', 0)
+            if prompt_length > 0:
+                logits_previous = logits_previous[:, prompt_length:, :]
             probs_previous = logits_previous[0].softmax(dim=1)
             values_previous, predictions_previous = probs_previous.topk(1)
             predictions_previous = torch.squeeze(predictions_previous)
@@ -72,11 +123,16 @@ def eval_model(dataloaders,
 
             """ Non-teacher-forcing 解码推理"""
             predictions=model.generate(inputs_batch, masks_batch, invert_masks_batch, target_ids_batch,
+                                       prior_ids_batch=prior_ids_batch,
+                                       sentiment_labels_batch=sentiment_labels_batch,
+                                       topic_labels_batch=topic_labels_batch,
+                                       length_values_batch=length_values_batch,
+                                       surprisal_values_batch=surprisal_values_batch,
                                        max_length=60,
                                        num_beams=5,
                                        do_sample=True,
-                                       repetition_penalty= 5.0,
-                                       no_repeat_ngram_size = 2
+                                       repetition_penalty=1.35,
+                                       no_repeat_ngram_size=3
                                        )
             
             predicted_string=tokenizer.batch_decode(predictions, skip_special_tokens=True)[0]
@@ -248,6 +304,9 @@ if __name__ == '__main__':
         encoder_name = experiment_config['encoder']
         enhancement_config = experiment_config.get('enhancement', None)
         enhancement_name = get_enhancement_name(enhancement_config)
+        neuro_config = (enhancement_config or {}).get('neuro_guide', {})
+        attribute_path = neuro_config.get('attribute_path', None)
+        require_semkey_attributes = bool(neuro_config.get('require_semkey_attributes', False))
         pretrained_dict = MODEL_REGISTRY[pretrained_name]
         encoder_dict = ENCODER_REGISTRY[encoder_name]
 
@@ -275,6 +334,9 @@ if __name__ == '__main__':
             bands=bands_choice,
             setting=dataset_setting,
             test_input=test_input,
+            task_name=task_name,
+            attribute_path=attribute_path,
+            require_semkey_attributes=require_semkey_attributes,
         )
 
         print('[信息]测试集大小: ', len(test_set))
@@ -287,6 +349,7 @@ if __name__ == '__main__':
         )
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])
         model = Decoder(pretrained_name, pretrained, encoder, tokenizer, enhancement_config=enhancement_config)
+        model = apply_step2_lora_if_needed(model, enhancement_config, pretrained_name)
         state_dict = torch.load(ckpt_path, map_location=device)
         new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
         model.load_state_dict(new_state_dict)

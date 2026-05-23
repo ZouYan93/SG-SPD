@@ -1,7 +1,7 @@
 from transformers import BartTokenizer, BartForConditionalGeneration, BartConfig
 from transformers import PegasusTokenizer, PegasusForConditionalGeneration, PegasusConfig
 from transformers import T5Tokenizer, T5ForConditionalGeneration, T5Config
-from model.encoder import AdditionalTransformerEncoder, FullyConnectedEncoder, CNNEncoder, LSTMEncoder
+from model.encoder import AdditionalTransformerEncoder, FullyConnectedEncoder, CNNEncoder, LSTMEncoder, SemKeyStyleEncoder
 
 MODEL_REGISTRY = {
     'Bart':    {'model_id': 'facebook/bart-large', 
@@ -21,6 +21,12 @@ MODEL_REGISTRY = {
                 'generation': "T5ForConditionalGeneration", 
                 'tokenizer': "T5Tokenizer",
                 'local_model_path': "./pretrained_models/T5"
+                },
+    'Flan-T5':  {'model_id': 'google/flan-t5-large', 
+                 'config': "T5Config", 
+                 'generation': "T5ForConditionalGeneration", 
+                 'tokenizer': "T5Tokenizer",
+                 'local_model_path': "./pretrained_models/Flan-T5"
                 }
 }
 
@@ -36,6 +42,18 @@ ENCODER_REGISTRY = {
                     },
     'LSTM':        {'model': "LSTMEncoder",
                     'args' : {'in_feature': 840, 'hidden_dim': 840, 'num_layers': 6}
+                    },
+    'SemKeyStyle': {'model': "SemKeyStyleEncoder",
+                    'args' : {
+                        'in_feature': 840,
+                        'input_len': 60,
+                        'hidden_dim': 128,
+                        'hidden_len': 96,
+                        'n_in_blocks': 6,
+                        'n_out_blocks': 6,
+                        'nhead': 8,
+                        'dropout': 0.1
+                        }
                     }
 }
 
@@ -52,5 +70,36 @@ CLASS_MAP = {
     'AdditionalTransformerEncoder': AdditionalTransformerEncoder,
     'FullyConnectedEncoder': FullyConnectedEncoder,
     'CNNEncoder': CNNEncoder,
-    'LSTMEncoder': LSTMEncoder
+    'LSTMEncoder': LSTMEncoder,
+    'SemKeyStyleEncoder': SemKeyStyleEncoder
+}
+
+ATTRIBUTE_MODEL_REGISTRY = {
+    'SemKey': {
+        'topic': {
+            'task': 'zero-shot-classification',
+            'model_id': 'facebook/bart-large-mnli',
+            'local_model_path': './pretrained_models/SemKey-topic-bart-large-mnli',
+            'use_safetensors': False,
+            'candidate_labels': [
+                'Movie Reviews and Sentiment',
+                'Biographies and Factual Knowledge',
+            ],
+        },
+        'sentiment': {
+            'task': 'sentiment-analysis',
+            'model_id': 'cardiffnlp/twitter-roberta-base-sentiment-latest',
+            'local_model_path': './pretrained_models/SemKey-sentiment-twitter-roberta',
+            'use_safetensors': False,
+            'neutral_label': 'neutral',
+            'non_neutral_label': 'non_neutral',
+        },
+        'surprisal': {
+            'model_id': 'gpt2',
+            'local_model_path': './pretrained_models/SemKey-surprisal-gpt2',
+            'use_safetensors': False,
+            'tokenizer': 'GPT2Tokenizer',
+            'generation': 'GPT2LMHeadModel',
+        },
+    }
 }

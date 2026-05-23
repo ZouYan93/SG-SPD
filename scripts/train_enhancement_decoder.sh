@@ -9,9 +9,9 @@ python3 train_decoder.py --task_name task1_task2_task3 \
     --subjects ALL \
     --eeg_type GD \
     --batch_size 16 \
-    --num_epoch_step1 20 \
-    --num_epoch_step2 30 \
-    --learning_rate_step1 0.00002 \
-    --learning_rate_step2 0.00002 \
-    --seed 312 \
+    --num_epoch_step1 300 \
+    --num_epoch_step2 300 \
+    --learning_rate_step1 0.00004 \
+    --learning_rate_step2 0.00001 \
+    --seed 12 \
     --experiments_json_path ./experiments/train_enh_decoder_experiments.json

@@ -13,7 +13,8 @@ from utils.data.data import ZuCo_dataset
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import count_model_parameters, get_file_size_mb, write_sections_to_excel
-from utils.utils import load_dataset_dicts, state_dict_to_cpu, release_cuda_memory, get_enhancement_name
+from utils.utils import load_dataset_dicts, state_dict_to_cpu, release_cuda_memory, get_enhancement_name, \
+                        should_freeze_pretrained_step2, freeze_pretrained_parameters
 
 
 def train_model(dataloaders, 
@@ -21,18 +22,19 @@ def train_model(dataloaders,
                 model, 
                 tokenizer, 
                 dataset_sizes,
-                criterion, 
                 optimizer, 
                 scheduler, 
                 num_epochs=20, 
                 checkpoint_path_best = './checkpoints/decoder/best/decoder.pt', 
-                checkpoint_path_last = './checkpoints/decoder/last/decoder.pt'):
+                checkpoint_path_last = './checkpoints/decoder/last/decoder.pt',
+                loss_type='norm'):
     since = time.time()
     best_model_weights = state_dict_to_cpu(model.state_dict())
     best_loss = 1e12
     total_train_time = 0.0
     train_loss_history = []
     eval_loss_history = []
+    aux_loss_history = {'train': [], 'eval': []}
 
     for epoch in range(num_epochs):
         print(f'进度 {epoch + 1}/{num_epochs}')
@@ -47,6 +49,8 @@ def train_model(dataloaders,
                 model.eval()
 
             epoch_loss = 0.0
+            aux_metric_sums = {}
+            aux_metric_counts = {}
 
             for inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels in tqdm(dataloaders[phase]):
                 inputs_batch = inputs.to(device).float()
@@ -58,8 +62,12 @@ def train_model(dataloaders,
 
                 optimizer.zero_grad(set_to_none=True)
                 with torch.set_grad_enabled(phase == 'train'):
-                    output = model(inputs_batch, masks_batch, invert_masks_batch, target_ids_batch)
+                    output = model(inputs_batch, masks_batch, invert_masks_batch, target_ids_batch, loss_type=loss_type)
                     loss = output.loss
+                    aux_loss_dict = getattr(output, 'aux_loss_dict', {})
+                    for aux_name, aux_value in aux_loss_dict.items():
+                        aux_metric_sums[aux_name] = aux_metric_sums.get(aux_name, 0.0) + float(aux_value) * inputs_batch.size()[0]
+                        aux_metric_counts[aux_name] = aux_metric_counts.get(aux_name, 0) + inputs_batch.size()[0]
                     if phase == 'train':
                         loss.sum().backward()
                         optimizer.step()
@@ -76,8 +84,16 @@ def train_model(dataloaders,
                 train_loss_history.append(float(epoch_loss))
             else:
                 eval_loss_history.append(float(epoch_loss))
+            aux_epoch_metrics = {
+                aux_name: aux_metric_sums[aux_name] / max(aux_metric_counts.get(aux_name, 0), 1)
+                for aux_name in aux_metric_sums
+            }
+            aux_loss_history[phase].append(aux_epoch_metrics)
 
             print(f'{phase} Loss: {epoch_loss:.6f}')
+            if aux_epoch_metrics:
+                aux_text = ', '.join([f'{k}: {v:.6f}' for k, v in aux_epoch_metrics.items()])
+                print(f'{phase} Aux: {aux_text}')
 
             if phase == 'eval' and epoch_loss < best_loss:
                 best_loss = epoch_loss
@@ -104,6 +120,7 @@ def train_model(dataloaders,
         'best_eval_loss': best_loss,
         'train_loss_history': train_loss_history,
         'eval_loss_history': eval_loss_history,
+        'aux_loss_history': aux_loss_history,
     }
     return model, metrics
 
@@ -134,11 +151,12 @@ if __name__ == '__main__':
     metrics_excel_path = os.path.join(save_dir, 'experiment_metrics.xlsx')
 
     """设置设备"""
-    device_ids = [0]
     if torch.cuda.is_available():  
         dev = args['cuda'] 
-    else:  
+        device_ids = [int(dev.split(':')[1])] if ':' in dev else [0]
+    else:
         dev = "cpu"
+        device_ids = None
     device = torch.device(dev)
     print(f'[信息]使用设备 {dev}')
 
@@ -239,7 +257,16 @@ if __name__ == '__main__':
         print('[信息]验证集数量: ', len(dev_set))
     
         train_dataloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
-        val_dataloader = DataLoader(dev_set, batch_size=1, shuffle=False, num_workers=4)
+        needs_batched_eval = enhancement_config and (
+            enhancement_config.get('noise_contrast', {}).get('enabled', False)
+            or enhancement_config.get('semantic_alignment', {}).get('enabled', False)
+            or enhancement_config.get('hidden_distillation', {}).get('enabled', False)
+        )
+        if needs_batched_eval:
+            eval_batch_size = batch_size
+        else:
+            eval_batch_size = 1
+        val_dataloader = DataLoader(dev_set, batch_size=eval_batch_size, shuffle=False, num_workers=4)
         dataloaders = {'train':train_dataloader, 'eval':val_dataloader}
 
         '''模型设置'''
@@ -260,6 +287,70 @@ if __name__ == '__main__':
         model = torch.nn.DataParallel(model, device_ids=device_ids)
 
         """阶段一训练: 先冻结预训练模型部分权重，单独训练编码器和线性层"""
+        for name, param in model.named_parameters():
+            if "pretrained" in name:
+                param.requires_grad = False
+        # if pretrained_name == 'Bart' or pretrained_name == 'T5' or pretrained_name == 'Pegasus':
+        #     for name, param in model.named_parameters():
+        #         if param.requires_grad and 'pretrained' in name:
+        #             if ('shared' in name) or ('embed_positions' in name) or ('encoder.layers.0' in name):
+        #                 continue
+        #             else:
+        #                 param.requires_grad = False
+        # elif pretrained_name == 'Bert':
+        #     for name, param in model.named_parameters():
+        #         if param.requires_grad and 'pretrained' in name:
+        #             if ('embeddings' in name) or ('encoder.layer.0' in name):
+        #                 continue
+        #             else:
+        #                 param.requires_grad = False
+    
+        if skip_step_one:
+            step1_metrics = {
+                'train_time_sec': 0.0,
+                'train_samples_per_sec': 0.0,
+                'best_eval_loss': None,
+                'train_loss_history': [],
+                'eval_loss_history': [],
+                'aux_loss_history': {'train': [], 'eval': []},
+            }
+            if load_step1_checkpoint:
+                print(f'加载阶段一检查点: {stepone_checkpoint}')
+                model.load_state_dict(torch.load(stepone_checkpoint))
+            else:
+                print('跳过阶段一训练，直接进入阶段二训练 ...')
+        else:
+            optimizer_step1 = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=step1_lr, momentum=0.9)
+            exp_lr_scheduler_step1 = lr_scheduler.StepLR(optimizer_step1, step_size=50, gamma=0.8)
+            print('[信息]开始阶段一训练 ...')
+            model, step1_metrics = train_model(dataloaders, 
+                                               device, 
+                                               model,
+                                               tokenizer,
+                                               dataset_sizes,
+                                               optimizer_step1, 
+                                               exp_lr_scheduler_step1, 
+                                               num_epochs=num_epochs_step1, 
+                                               checkpoint_path_best=output_checkpoint_name_best, 
+                                               checkpoint_path_last=output_checkpoint_name_last,
+                                               loss_type='aux')
+            
+            # 保存step1训练结束后的模型检查点
+            save_path_step1 = os.path.join(save_path, 'step1')
+            if not os.path.exists(save_path_step1):
+                os.makedirs(save_path_step1)
+            step1_ckpt_path = os.path.join(save_path_step1, f'{save_name}_step1.pt')
+            torch.save(model.state_dict(), step1_ckpt_path)
+            print(f'[信息]阶段一训练完成，模型已保存至: {step1_ckpt_path}')
+
+            release_cuda_memory(optimizer_step1, exp_lr_scheduler_step1)
+
+        """阶段二训练: 更新整个模型进行几次迭代"""
+        # for name, param in model.named_parameters():
+        #     if "pretrained" in name:
+        #         param.requires_grad = False
+        #     else:
+        #         param.requires_grad = True
         if pretrained_name == 'Bart' or pretrained_name == 'T5' or pretrained_name == 'Pegasus':
             for name, param in model.named_parameters():
                 if param.requires_grad and 'pretrained' in name:
@@ -274,56 +365,20 @@ if __name__ == '__main__':
                         continue
                     else:
                         param.requires_grad = False
-    
-        if skip_step_one:
-            step1_metrics = {
-                'train_time_sec': 0.0,
-                'train_samples_per_sec': 0.0,
-                'best_eval_loss': None,
-                'train_loss_history': [],
-                'eval_loss_history': [],
-            }
-            if load_step1_checkpoint:
-                print(f'加载阶段一检查点: {stepone_checkpoint}')
-                model.load_state_dict(torch.load(stepone_checkpoint))
-            else:
-                print('跳过阶段一训练，直接进入阶段二训练 ...')
-        else:
-            optimizer_step1 = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=step1_lr, momentum=0.9)
-            exp_lr_scheduler_step1 = lr_scheduler.StepLR(optimizer_step1, step_size=20, gamma=0.1)
-            criterion = nn.CrossEntropyLoss()
-            print('[信息]开始阶段一训练 ...')
-            model, step1_metrics = train_model(dataloaders, 
-                                               device, 
-                                               model,
-                                               tokenizer,
-                                               dataset_sizes,
-                                               criterion, 
-                                               optimizer_step1, 
-                                               exp_lr_scheduler_step1, 
-                                               num_epochs=num_epochs_step1, 
-                                               checkpoint_path_best = output_checkpoint_name_best, 
-                                               checkpoint_path_last = output_checkpoint_name_last)
-            release_cuda_memory(optimizer_step1, exp_lr_scheduler_step1)
-
-        """阶段二训练: 更新整个模型进行几次迭代"""
-        for name, param in model.named_parameters():
-            param.requires_grad = True
-        optimizer_step2 = optim.SGD(model.parameters(), lr=step2_lr, momentum=0.9)
-        exp_lr_scheduler_step2 = lr_scheduler.StepLR(optimizer_step2, step_size=30, gamma=0.1)
-        criterion = nn.CrossEntropyLoss()
+        optimizer_step2 = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=step2_lr, momentum=0.9)
+        exp_lr_scheduler_step2 = lr_scheduler.StepLR(optimizer_step2, step_size=100, gamma=0.5)
         print('[信息]开始阶段二训练 ...')
         trained_model, step2_metrics = train_model(dataloaders, 
                                                    device, 
                                                    model,
                                                    tokenizer,
                                                    dataset_sizes,
-                                                   criterion, 
                                                    optimizer_step2, 
                                                    exp_lr_scheduler_step2, 
                                                    num_epochs=num_epochs_step2, 
                                                    checkpoint_path_best = output_checkpoint_name_best, 
-                                                   checkpoint_path_last = output_checkpoint_name_last)
+                                                   checkpoint_path_last = output_checkpoint_name_last,
+                                                   loss_type='combined')
 
         """统计模型参数量、检查点文件大小等信息，并写入Excel表格"""
         total_params, trainable_params = count_model_parameters(trained_model)
@@ -341,6 +396,8 @@ if __name__ == '__main__':
             'encoder': encoder_name,
             'train_input': train_input,
             'enhancement': enhancement_name,
+            'freeze_pretrained_step2': should_freeze_pretrained_step2(enhancement_config),
+            'contrast_negative_type': None if not enhancement_config else enhancement_config.get('noise_contrast', {}).get('negative_type'),
             'step1_time_sec': round(step1_metrics['train_time_sec'], 4),
             'step2_time_sec': round(step2_metrics['train_time_sec'], 4),
             'total_time_sec': round(total_time_sec, 4),
@@ -371,6 +428,36 @@ if __name__ == '__main__':
                 'eval_loss': step2_metrics['eval_loss_history'][idx] if idx < len(step2_metrics['eval_loss_history']) else None,
             })
 
+        step1_aux_rows = []
+        step1_aux_train = step1_metrics.get('aux_loss_history', {}).get('train', [])
+        step1_aux_eval = step1_metrics.get('aux_loss_history', {}).get('eval', [])
+        step1_aux_keys = sorted({
+            key
+            for row in step1_aux_train + step1_aux_eval
+            for key in row.keys()
+        })
+        for idx in range(max(len(step1_aux_train), len(step1_aux_eval))):
+            row = {'epoch': idx + 1}
+            for key in step1_aux_keys:
+                row[f'train_{key}'] = step1_aux_train[idx].get(key) if idx < len(step1_aux_train) else None
+                row[f'eval_{key}'] = step1_aux_eval[idx].get(key) if idx < len(step1_aux_eval) else None
+            step1_aux_rows.append(row)
+
+        step2_aux_rows = []
+        step2_aux_train = step2_metrics.get('aux_loss_history', {}).get('train', [])
+        step2_aux_eval = step2_metrics.get('aux_loss_history', {}).get('eval', [])
+        step2_aux_keys = sorted({
+            key
+            for row in step2_aux_train + step2_aux_eval
+            for key in row.keys()
+        })
+        for idx in range(max(len(step2_aux_train), len(step2_aux_eval))):
+            row = {'epoch': idx + 1}
+            for key in step2_aux_keys:
+                row[f'train_{key}'] = step2_aux_train[idx].get(key) if idx < len(step2_aux_train) else None
+                row[f'eval_{key}'] = step2_aux_eval[idx].get(key) if idx < len(step2_aux_eval) else None
+            step2_aux_rows.append(row)
+
         sections = [
             {
                 'type': 'kv',
@@ -390,6 +477,20 @@ if __name__ == '__main__':
                 'rows': step2_loss_rows,
             },
         ]
+        if step1_aux_rows:
+            sections.append({
+                'type': 'table',
+                'title': 'step1_auxiliary_metrics',
+                'headers': list(step1_aux_rows[0].keys()),
+                'rows': step1_aux_rows,
+            })
+        if step2_aux_rows:
+            sections.append({
+                'type': 'table',
+                'title': 'step2_auxiliary_metrics',
+                'headers': list(step2_aux_rows[0].keys()),
+                'rows': step2_aux_rows,
+            })
         write_sections_to_excel(metrics_excel_path, sheet_name, sections, mode='replace')
         print(f'[信息]该次实验指标已写入: {metrics_excel_path}')
         release_cuda_memory(
@@ -405,7 +506,6 @@ if __name__ == '__main__':
             dataloaders,
             optimizer_step2,
             exp_lr_scheduler_step2,
-            criterion,
             step1_metrics,
             step2_metrics,
             sections,

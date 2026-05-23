@@ -51,7 +51,7 @@ def parse_run_and_experiment_from_ckpt(ckpt_path):
         raise FileNotFoundError(f'找不到检查点: {ckpt_path}')
 
     parent_dir = os.path.dirname(ckpt_path)
-    assert os.path.basename(parent_dir) in ('best', 'last'), f"非法路径: {parent_dir}"
+    assert os.path.basename(parent_dir) in ('best', 'last', 'step1'), f"非法路径: {parent_dir}"
     experiment_dir = os.path.dirname(parent_dir)
 
     run_dir = None
@@ -232,4 +232,27 @@ def get_enhancement_name(enhancement_config):
             names.append('alignF')
     if enhancement_config.get('noise_contrast', {}).get('enabled', False):
         names.append('noisecon')
+    if enhancement_config.get('hidden_distillation', {}).get('enabled', False):
+        names.append('distill')
     return '_'.join(names) if names else 'baseline'
+
+def should_freeze_pretrained_step2(enhancement_config):
+    """根据增强配置判断在阶段二是否需要冻结预训练模型参数，主要针对噪声对比增强方法"""
+    if not enhancement_config:
+        return False
+    if 'freeze_pretrained_step2' in enhancement_config:
+        return enhancement_config['freeze_pretrained_step2']
+    return enhancement_config.get('noise_contrast', {}).get('enabled', False)
+
+def freeze_pretrained_parameters(model):
+    """冻结模型中包含 'pretrained' 的参数，通常用于阶段二训练时冻结预训练模型部分，只训练 EEG/adapter/helper 参数"""
+    frozen = 0
+    trainable = 0
+    for name, param in model.named_parameters():
+        if 'pretrained' in name:
+            param.requires_grad = False
+            frozen += param.numel()
+        else:
+            param.requires_grad = True
+            trainable += param.numel()
+    print(f'[信息]阶段二冻结 pretrained 参数: {frozen}, 训练 EEG/adapter/helper 参数: {trainable}')

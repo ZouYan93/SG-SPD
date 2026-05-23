@@ -19,6 +19,10 @@ DEFAULT_TRAIN_DECODER_CONFIG = {
     'load_step1_checkpoint': False,
     'stepone_checkpoint': '',
     'use_random_init': False,
+    'use_mtv': False,
+    'mtv_path': None,
+    'mtv_variant_keys': None,
+    'mtv_include_original': False,
     'seed': 12,
     'experiments': [
         {'pretrained': 'Bart', 'encoder': 'Transformer', 'train_input': 'noise'},
@@ -56,6 +60,8 @@ def _build_train_decoder_parser():
     parser.add_argument('--learning_rate_step2', type=float, default=None, help='Step2 学习率')
     parser.add_argument('--stepone_checkpoint', type=str, default=None, help='Step1 检查点路径')
     parser.add_argument('--seed', type=int, default=None, help='随机种子')
+    parser.add_argument('--mtv_path', type=str, default=None, help='MTV 变体文件路径，例如 zuco_label_8variants.df')
+    parser.add_argument('--mtv_variant_keys', nargs='+', default=None, help='MTV 使用的变体列名列表')
 
     # 开关项
     parser.add_argument('--skip_step_one', dest='skip_step_one', action='store_true', help='是否跳过 Step1 训练')
@@ -69,6 +75,14 @@ def _build_train_decoder_parser():
     parser.add_argument('--use_random_init', dest='use_random_init', action='store_true', help='是否使用随机初始化')
     parser.add_argument('--use_pretrained_init', dest='use_random_init', action='store_false', help='使用预训练初始化')
     parser.set_defaults(use_random_init=None)
+
+    parser.add_argument('--use_mtv', dest='use_mtv', action='store_true', help='训练集启用 Multiple Text Variants 目标增强')
+    parser.add_argument('--no_use_mtv', dest='use_mtv', action='store_false', help='关闭 MTV 目标增强')
+    parser.set_defaults(use_mtv=None)
+
+    parser.add_argument('--mtv_include_original', dest='mtv_include_original', action='store_true', help='MTV 展开时同时保留原始 target')
+    parser.add_argument('--no_mtv_include_original', dest='mtv_include_original', action='store_false', help='MTV 展开时不额外保留原始 target')
+    parser.set_defaults(mtv_include_original=None)
 
     # 支持直接传 JSON 字符串，或通过文件读取
     parser.add_argument(
@@ -168,6 +182,10 @@ def get_config(case):
             'load_step1_checkpoint',
             'stepone_checkpoint',
             'use_random_init',
+            'use_mtv',
+            'mtv_path',
+            'mtv_variant_keys',
+            'mtv_include_original',
             'seed'
         ):
             value = getattr(parsed_args, key)

@@ -1,0 +1,42 @@
+[
+  {
+    "pretrained": "T5",
+    "encoder": "SemKeyStyle",
+    "train_input": "EEG",
+    "enhancement": {
+      "name": "neuroguide",
+      "neuro_guide": {
+        "enabled": true,
+        "dropout": 0.1,
+        "num_heads": 8,
+        "temperature": 0.07,
+        "commitment_loss": "mse",
+        "prompt_text": "System: Based on the following EEG signals, reconstruct the text.",
+        "attribute_path": "./dataset/ZuCo/zuco_semkey_labels.df",
+        "require_semkey_attributes": true,
+        "attribute_hidden_dims": [512, 256],
+        "attribute_dropout": 0.3,
+        "sentiment_loss_weight": 0.25,
+        "topic_loss_weight": 0.25,
+        "length_loss_weight": 0.25,
+        "surprisal_loss_weight": 0.25,
+        "stage1_recon_weight": 1.0,
+        "stage1_clip_weight": 0.5,
+        "stage1_commitment_weight": 0.7,
+        "stage1_attribute_weight": 1.0,
+        "use_stage2_attribute_loss": false,
+        "stage2_attribute_weight": 0.0,
+        "freeze_after_step1": false
+      },
+      "freeze_pretrained_step2": true,
+      "stage2_freeze_strategy": "full_freeze_llm",
+      "stage2_optimizer": "AdamW",
+      "stage2_weight_decay": 0.01
+    },
+    "mtv": {
+      "enabled": true,
+      "path": "./dataset/ZuCo/zuco_label_8variants.df",
+      "include_original": false
+    }
+  }
+]

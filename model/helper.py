@@ -91,7 +91,7 @@ class EEGChannelBandAttention(nn.Module):
             self.band_mlp(band_avg) + self.band_mlp(band_max)
         ).unsqueeze(-2)
 
-        attended = x * channel_attention * band_attention
+        attended = x + x * channel_attention * band_attention
         attended = self.dropout(attended)
 
         self.last_channel_attention = channel_attention.detach()
@@ -128,7 +128,9 @@ class SemanticAlignmentLoss(nn.Module):
         labels = torch.arange(logits.size(0), device=logits.device)
 
         if not self.soft_negative:
-            return F.cross_entropy(logits, labels)
+            eeg_to_text_loss = F.cross_entropy(logits, labels)
+            text_to_eeg_loss = F.cross_entropy(logits.t(), labels)
+            return 0.5 * (eeg_to_text_loss + text_to_eeg_loss)
 
         with torch.no_grad():
             text_sim = torch.matmul(text_repr, text_repr.t()).clamp_min(0.0)
@@ -138,7 +140,31 @@ class SemanticAlignmentLoss(nn.Module):
         exp_logits = torch.exp(logits)
         weighted_denominator = (exp_logits * weights).sum(dim=1)
         positive_logits = logits.diagonal()
-        return -(positive_logits - torch.log(weighted_denominator.clamp_min(1e-8))).mean()
+        eeg_to_text_loss = -(positive_logits - torch.log(weighted_denominator.clamp_min(1e-8))).mean()
+        text_to_eeg_loss = F.cross_entropy(logits.t(), labels)
+        return 0.5 * (eeg_to_text_loss + text_to_eeg_loss)
+
+    @torch.no_grad()
+    def metrics(self, eeg_sentence_repr, text_sentence_repr):
+        eeg_repr = F.normalize(eeg_sentence_repr, dim=-1)
+        text_repr = F.normalize(text_sentence_repr, dim=-1)
+        logits = torch.matmul(eeg_repr, text_repr.t()) / self.temperature
+        labels = torch.arange(logits.size(0), device=logits.device)
+        eeg_to_text_acc = (logits.argmax(dim=1) == labels).float().mean()
+        text_to_eeg_acc = (logits.argmax(dim=0) == labels).float().mean()
+        positive = logits.diagonal()
+        negative_mask = ~torch.eye(logits.size(0), dtype=torch.bool, device=logits.device)
+        if negative_mask.any():
+            negative_mean = logits[negative_mask].mean()
+            retrieval_gap = positive.mean() - negative_mean
+        else:
+            retrieval_gap = logits.new_tensor(0.0)
+        return {
+            'retrieval_eeg_to_text_acc': float(eeg_to_text_acc.cpu()),
+            'retrieval_text_to_eeg_acc': float(text_to_eeg_acc.cpu()),
+            'retrieval_logit_gap': float(retrieval_gap.cpu()),
+        }
+
 
 """EEG与随机噪声输入的区分约束"""
 class EEGNoiseContrastiveLoss(nn.Module):
@@ -146,11 +172,5 @@ class EEGNoiseContrastiveLoss(nn.Module):
         super(EEGNoiseContrastiveLoss, self).__init__()
         self.margin = margin
 
-    def forward(self, eeg_sentence_repr, noise_sentence_repr, text_sentence_repr):
-        eeg_repr = F.normalize(eeg_sentence_repr, dim=-1)
-        noise_repr = F.normalize(noise_sentence_repr, dim=-1)
-        text_repr = F.normalize(text_sentence_repr, dim=-1)
-
-        eeg_text_sim = F.cosine_similarity(eeg_repr, text_repr, dim=-1)
-        noise_text_sim = F.cosine_similarity(noise_repr, text_repr, dim=-1)
-        return F.relu(self.margin - eeg_text_sim + noise_text_sim).mean()
+    def forward(self, eeg_ce_loss, noise_ce_loss):
+        return F.relu(self.margin + eeg_ce_loss - noise_ce_loss)

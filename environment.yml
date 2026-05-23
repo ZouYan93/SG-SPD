@@ -25,3 +25,6 @@ dependencies:
     - datasets==4.5.0
     - fuzzy-match==0.0.1
     - rouge==1.0.0
+    - accelerate==0.16.0
+    - psutil==7.2.2
+    - peft==0.4.0

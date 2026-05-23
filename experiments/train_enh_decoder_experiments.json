@@ -1,110 +1,61 @@
 [
   {
     "pretrained": "T5",
-    "encoder": "CNN",
+    "encoder": "SemKeyStyle",
     "train_input": "EEG",
     "enhancement": {
-      "name": "attn",
-      "attention": {
+      "name": "neuroguide",
+      "neuro_guide": {
         "enabled": true,
-        "in_feature": 840,
-        "num_channels": 105,
-        "num_bands": 8,
-        "reduction": 8,
-        "dropout": 0.1
-      }
-    }
-  },
-  {
-    "pretrained": "T5",
-    "encoder": "CNN",
-    "train_input": "EEG",
-    "enhancement": {
-      "name": "alignF",
-      "semantic_alignment": {
-        "enabled": true,
-        "weight": 0.1,
+        "dropout": 0.1,
+        "num_heads": 8,
         "temperature": 0.07,
-        "soft_negative": false
-      }
-    }
-  },
-  {
-    "pretrained": "T5",
-    "encoder": "CNN",
-    "train_input": "EEG",
-    "enhancement": {
-      "name": "alignT",
-      "semantic_alignment": {
-        "enabled": true,
-        "weight": 0.1,
-        "temperature": 0.07,
-        "soft_negative": true
-      }
-    }
-  },
-  {
-    "pretrained": "T5",
-    "encoder": "CNN",
-    "train_input": "EEG",
-    "enhancement": {
-      "name": "noisecon",
-      "noise_contrast": {
-        "enabled": true,
-        "weight": 0.1,
-        "margin": 0.2,
-        "noise_std": 1.0
-      }
-    }
-  },
-  {
-    "pretrained": "T5",
-    "encoder": "CNN",
-    "train_input": "EEG",
-    "enhancement": {
-      "name": "attn_alignT",
-      "attention": {
-        "enabled": true,
-        "in_feature": 840,
-        "num_channels": 105,
-        "num_bands": 8,
-        "reduction": 8,
-        "dropout": 0.1
+        "commitment_loss": "mse",
+        "prompt_text": "System: Based on the following EEG signals, reconstruct the text.",
+        "prompt_attributes": ["sentiment", "topic", "length"],
+        "enabled_attribute_losses": ["sentiment", "topic", "length"],
+        "use_ground_truth_attributes_in_stage2_train": false,
+        "attribute_path": "./dataset/ZuCo/zuco_semkey_labels.df",
+        "require_semkey_attributes": true,
+        "attribute_hidden_dims": [512, 256],
+        "attribute_dropout": 0.3,
+        "sentiment_loss_weight": 0.25,
+        "topic_loss_weight": 0.25,
+        "length_loss_weight": 0.25,
+        "surprisal_loss_weight": 0.0,
+        "stage1_recon_weight": 0.2,
+        "stage1_clip_weight": 1.0,
+        "stage1_commitment_weight": 0.7,
+        "stage1_attribute_weight": 1.0,
+        "stage1_signal_grounding_weight": 0.0,
+        "stage2_signal_grounding_weight": 0.5,
+        "signal_grounding": {
+          "enabled": true,
+          "noise_types": ["random", "shuffle"],
+          "align_weight": 1.0,
+          "align_margin": 0.15,
+          "eeg_noise_separation_weight": 0.5,
+          "max_eeg_noise_cosine": 0.1,
+          "recon_weight": 0.5,
+          "recon_margin": 0.25,
+          "noise_attribute_uniform_weight": 0.0
+        },
+        "use_stage2_attribute_loss": false,
+        "stage2_attribute_weight": 0.0,
+        "freeze_attribute_heads_step2": true,
+        "train_lora_embeddings": false,
+        "freeze_after_step1": true
       },
-      "semantic_alignment": {
-        "enabled": true,
-        "weight": 0.1,
-        "temperature": 0.07,
-        "soft_negative": true
-      }
-    }
-  },
-  {
-    "pretrained": "T5",
-    "encoder": "CNN",
-    "train_input": "EEG",
-    "enhancement": {
-      "name": "attn_alignT_noisecon",
-      "attention": {
-        "enabled": true,
-        "in_feature": 840,
-        "num_channels": 105,
-        "num_bands": 8,
-        "reduction": 8,
-        "dropout": 0.1
-      },
-      "semantic_alignment": {
-        "enabled": true,
-        "weight": 0.1,
-        "temperature": 0.07,
-        "soft_negative": true
-      },
-      "noise_contrast": {
-        "enabled": true,
-        "weight": 0.1,
-        "margin": 0.2,
-        "noise_std": 1.0
-      }
+      "freeze_pretrained_step2": true,
+      "stage2_freeze_strategy": "lora",
+      "stage2_train_non_pretrained": true,
+      "stage2_optimizer": "AdamW",
+      "stage2_weight_decay": 0.01
+    },
+    "mtv": {
+      "enabled": false,
+      "path": "./dataset/ZuCo/zuco_label_8variants.df",
+      "include_original": false
     }
   }
 ]
