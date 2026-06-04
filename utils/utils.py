@@ -256,3 +256,48 @@ def freeze_pretrained_parameters(model):
             param.requires_grad = True
             trainable += param.numel()
     print(f'[信息]阶段二冻结 pretrained 参数: {frozen}, 训练 EEG/adapter/helper 参数: {trainable}')
+
+def apply_step2_lora_if_needed(model, enhancement_config, pretrained_name):
+    """
+    如果增强配置指定阶段二冻结策略为 LoRA，则应用 LoRA 到预训练模型部分，并冻结原始参数；否则保持原模型不变。
+    """
+    strategy = (enhancement_config or {}).get('stage2_freeze_strategy', None)
+    if strategy != 'lora':
+        return model
+
+    try:
+        from peft import LoraConfig, get_peft_model
+    except ImportError as exc:
+        raise ImportError('stage2_freeze_strategy=lora 需要安装 peft 包。') from exc
+
+    core_model = model.module if hasattr(model, 'module') else model
+    neuro_config = (enhancement_config or {}).get('neuro_guide', {})
+    if hasattr(core_model.pretrained, 'peft_config'):
+        return model
+
+    if pretrained_name in ('T5', 'Flan-T5'):
+        target_modules = neuro_config.get('lora_target_modules', ['q', 'v'])
+    else:
+        target_modules = neuro_config.get('lora_target_modules', ['q_proj', 'v_proj'])
+
+    lora_rank = int(neuro_config.get('lora_rank', 8))
+    lora_config = LoraConfig(
+        r=lora_rank,
+        lora_alpha=int(neuro_config.get('lora_alpha', lora_rank * 2)),
+        target_modules=target_modules,
+        lora_dropout=float(neuro_config.get('lora_dropout', 0.1)),
+        bias='none',
+        task_type='SEQ_2_SEQ_LM',
+    )
+
+    for param in core_model.pretrained.parameters():
+        param.requires_grad = False
+    core_model.pretrained = get_peft_model(core_model.pretrained, lora_config)
+
+    if neuro_config.get('train_lora_embeddings', True):
+        for name, param in core_model.pretrained.named_parameters():
+            if 'embed_tokens' in name or 'shared' in name:
+                param.requires_grad = True
+
+    print(f'[信息]已为 Stage2 启用 LoRA: target_modules={target_modules}, rank={lora_rank}')
+    return model

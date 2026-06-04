@@ -8,16 +8,13 @@ from tqdm import tqdm
 from utils.data.data import ZuCo_dataset
 from nltk.translate.bleu_score import corpus_bleu
 from rouge import Rouge
-from evaluate import load
 from model.decoder import Decoder
 from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import write_sections_to_excel
-from train_decoder4 import apply_step2_lora_if_needed
-from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, \
-                        load_training_and_experiment_configs, load_dataset_dicts, \
-                        export_eval_decoder_experiments_json, load_metrics, \
-                        ensure_torch_generate_compat, get_enhancement_name
+from utils.utils import remove_text_after_token, parse_run_and_experiment_from_ckpt, load_metrics, \
+                        load_training_and_experiment_configs, load_dataset_dicts, get_enhancement_name, \
+                        export_eval_decoder_experiments_json, ensure_torch_generate_compat, apply_step2_lora_if_needed
 
 
 def eval_model(dataloaders,

@@ -6,7 +6,7 @@ python3 eval_decoder.py \
     --exclude_regex_list "/last/" \
     --ckpt_list_output_json_path ./results/eval_decoder_checkpoints.json \
     --test_input EEG \
-    --cuda cuda:3 \
+    --cuda cuda:0 \
     --batch_size 1 \
     --seed 12
 
@@ -16,6 +16,6 @@ python3 eval_decoder.py \
     --exclude_regex_list "/last/" \
     --ckpt_list_output_json_path ./results/eval_decoder_checkpoints.json \
     --test_input noise \
-    --cuda cuda:3 \
+    --cuda cuda:0 \
     --batch_size 1 \
     --seed 12

@@ -144,6 +144,7 @@ class SemKeyStyleEncoder(nn.Module):
         self.output_dim = hidden_dim
         self.input_len = input_len
         self.hidden_len = hidden_len
+        self.uses_learned_queries = True
         self.input_proj = nn.Linear(in_feature, hidden_dim)
         self.prior_embedder = PriorLabelEmbedder(hidden_dim, dropout=dropout)
         self.in_blocks = nn.ModuleList([

@@ -1,3 +1,6 @@
+echo "本脚本为每条数据准备对应标签"
+echo "请确保运行本脚本前，准备了相应的预训练模型"
+
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

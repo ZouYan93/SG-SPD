@@ -66,6 +66,21 @@ class Decoder(nn.Module):
     def _project_to_pretrained_space(self, encoder_outputs):
         return self.fc1(encoder_outputs)
 
+    def _build_encoder_attention_mask(self, encoded_embedding, masks_batch):
+        # 普通 encoder 保留原始 padding mask；SemKeyStyle 这类 query-merger encoder
+        # 输出的是固定长度 latent tokens，每个 latent token 都应当对 LLM 可见。
+        batch_size, encoded_len = encoded_embedding.size(0), encoded_embedding.size(1)
+        if masks_batch is None:
+            return torch.ones(batch_size, encoded_len, device=encoded_embedding.device)
+        if getattr(self.encoder, 'uses_learned_queries', False) or masks_batch.size(1) != encoded_len:
+            return torch.ones(
+                batch_size,
+                encoded_len,
+                dtype=masks_batch.dtype,
+                device=encoded_embedding.device,
+            )
+        return masks_batch.to(encoded_embedding.device)
+
     def _build_attribute_head(self, hidden_dim, output_dim):
         neuro_config = self.enhancement_config.get('neuro_guide', {})
         hidden_dims = neuro_config.get('attribute_hidden_dims', [512, 256])
@@ -105,7 +120,12 @@ class Decoder(nn.Module):
         task_embedding = self.pretrained.shared(input_ids).to(encoded_embedding.device)
         task_embedding = task_embedding.repeat(encoded_embedding.size(0), 1, 1)
         encoded_embedding = torch.cat((task_embedding, encoded_embedding), dim=1)
-        task_mask = torch.ones(encoded_embedding.size(0), task_embedding.size(1), device=encoded_embedding.device)
+        task_mask = torch.ones(
+            encoded_embedding.size(0),
+            task_embedding.size(1),
+            dtype=masks_batch.dtype,
+            device=encoded_embedding.device,
+        )
         masks_batch = torch.cat((task_mask, masks_batch), dim=1)
         return encoded_embedding, masks_batch
 
@@ -920,10 +940,11 @@ class Decoder(nn.Module):
                 inputs_batch,
                 invert_masks_batch,
                 prior_ids_batch=prior_ids_batch,
-            )
+        )
         encoded_embedding = self._project_to_pretrained_space(encoder_outputs)
         decoder_input_ids = self._build_decoder_input_ids(target_ids_batch)
-        encoded_embedding, pretrained_masks_batch = self._append_t5_task_embedding(encoded_embedding, masks_batch)
+        pretrained_masks_batch = self._build_encoder_attention_mask(encoded_embedding, masks_batch)
+        encoded_embedding, pretrained_masks_batch = self._append_t5_task_embedding(encoded_embedding, pretrained_masks_batch)
         output = self.pretrained(
             inputs_embeds=encoded_embedding,
             attention_mask=pretrained_masks_batch,
@@ -1004,6 +1025,7 @@ class Decoder(nn.Module):
             prior_ids_batch=prior_ids_batch,
         )
         encoded_embedding = self._project_to_pretrained_space(encoder_outputs)
+        masks_batch = self._build_encoder_attention_mask(encoded_embedding, masks_batch)
         encoded_embedding, masks_batch = self._append_t5_task_embedding(encoded_embedding, masks_batch)
         return self.pretrained.generate(
             inputs_embeds=encoded_embedding,

@@ -8,38 +8,8 @@ import matplotlib as mpl
 # 字体设置
 # ======================
 
-# 中文字体：Noto Serif CJK SC，Linux 下常见宋体替代
-cn_font_path = "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"
-
-# 英文字体：优先 Times New Roman，其次 Liberation Serif
-candidate_en_fonts = [
-    "/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf",
-    "/usr/share/fonts/truetype/msttcorefonts/times.ttf",
-    "/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
-]
-
-en_font_path = None
-for path in candidate_en_fonts:
-    if os.path.exists(path):
-        en_font_path = path
-        break
-
-if not os.path.exists(cn_font_path):
-    raise FileNotFoundError(
-        "未找到中文字体 NotoSerifCJK-Regular.ttc，请先安装：sudo apt install fonts-noto-cjk"
-    )
-
-if en_font_path is None:
-    raise FileNotFoundError(
-        "未找到 Times New Roman 或 Liberation Serif，请先安装：sudo apt install fonts-liberation"
-    )
-
-fontManager.addfont(cn_font_path)
-fontManager.addfont(en_font_path)
-
-font_cn = FontProperties(fname=cn_font_path, size=12)
-font_en = FontProperties(fname=en_font_path, size=12)
+font_cn = FontProperties(fname=r"C:\Windows\Fonts\simsun.ttc", size=14)   # 宋体
+font_en = FontProperties(fname=r"C:\Windows\Fonts\times.ttf", size=14)    # Times New Roman
 
 mpl.rcParams["axes.unicode_minus"] = False
 mpl.rcParams["font.family"] = font_en.get_name()
@@ -222,4 +192,5 @@ plt.subplots_adjust(left=0.09, right=0.82, bottom=0.15, top=0.90)
 
 # 保存图片
 plt.savefig("model_time_loss.png", dpi=300)
+plt.savefig("model_time_loss.pdf", bbox_inches="tight", pad_inches=0.25)
 plt.show()

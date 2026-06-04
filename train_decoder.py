@@ -14,20 +14,159 @@ from utils.config import get_config
 from utils.registry import MODEL_REGISTRY, ENCODER_REGISTRY, CLASS_MAP
 from utils.experiment_metrics import count_model_parameters, get_file_size_mb, write_sections_to_excel
 from utils.utils import load_dataset_dicts, state_dict_to_cpu, release_cuda_memory, get_enhancement_name, \
-                        should_freeze_pretrained_step2, freeze_pretrained_parameters
+                        should_freeze_pretrained_step2, freeze_pretrained_parameters, apply_step2_lora_if_needed
 
+def set_step2_train_scope(model, enhancement_config):
+    strategy = (enhancement_config or {}).get('stage2_freeze_strategy', None)
+    if strategy is None:
+        strategy = 'full_freeze_llm' if should_freeze_pretrained_step2(enhancement_config) else 'full_trainable_llm'
+
+    if strategy in ('full_freeze_llm', 'lora', 'full_trainable_llm'):
+        trainable = []
+        frozen_pretrained = 0
+        freeze_stage1_step2 = bool((enhancement_config or {}).get('freeze_stage1_step2', False))
+        train_non_pretrained_step2 = bool((enhancement_config or {}).get('stage2_train_non_pretrained', True))
+        neuro_config = (enhancement_config or {}).get('neuro_guide', {})
+        train_lora_embeddings = bool(neuro_config.get('train_lora_embeddings', True))
+        for name, param in model.named_parameters():
+            if strategy == 'full_trainable_llm':
+                param.requires_grad = True
+            elif strategy == 'full_freeze_llm':
+                if 'pretrained' in name:
+                    param.requires_grad = False
+                elif freeze_stage1_step2:
+                    param.requires_grad = name.startswith('fc1.')
+                else:
+                    param.requires_grad = True
+            else:
+                # 源码 Stage2 默认 LoRA：LLM 主体冻结，只训练 LoRA/embedding 小参数；
+                # EEG encoder、projector(fc1)、prompt-code 等非 pretrained 模块保持可训练。
+                if 'pretrained' not in name:
+                    if not train_non_pretrained_step2:
+                        param.requires_grad = False
+                    else:
+                        param.requires_grad = name.startswith('fc1.') if freeze_stage1_step2 else True
+                else:
+                    param.requires_grad = (
+                        'lora_' in name
+                        or '.lora_' in name
+                        or (train_lora_embeddings and ('embed_tokens' in name or 'shared' in name))
+                    )
+
+            if param.requires_grad:
+                trainable.append(name)
+            elif 'pretrained' in name:
+                frozen_pretrained += param.numel()
+
+        print(f'[信息]阶段二冻结策略: {strategy}, 冻结 pretrained 参数: {frozen_pretrained}, 可训练张量数: {len(trainable)}')
+        for name in trainable[:30]:
+            print(f'[信息]  trainable: {name}')
+        if len(trainable) > 30:
+            print(f'[信息]  ... 其余 {len(trainable) - 30} 个可训练张量省略')
+        return
+
+    scope = (enhancement_config or {}).get('step2_train_scope', 'default')
+    if scope == 'default':
+        for name, param in model.named_parameters():
+            param.requires_grad = True
+        if should_freeze_pretrained_step2(enhancement_config):
+            freeze_pretrained_parameters(model)
+        return
+
+    for _, param in model.named_parameters():
+        param.requires_grad = False
+
+    trainable = []
+    for name, param in model.named_parameters():
+        if scope == 'decoder_cross_attention_norm':
+            is_bart_cross_attn = (
+                'pretrained' in name
+                and '.decoder.layers.' in name
+                and ('encoder_attn' in name or 'encoder_attn_layer_norm' in name)
+            )
+            is_t5_cross_attn = (
+                'pretrained' in name
+                and '.decoder.block.' in name
+                and ('EncDecAttention' in name or 'layer.1.layer_norm' in name)
+            )
+            is_decoder_norm = (
+                'pretrained' in name
+                and '.decoder.' in name
+                and ('layer_norm' in name or 'LayerNorm' in name or 'final_layer_norm' in name)
+            )
+            param.requires_grad = is_bart_cross_attn or is_t5_cross_attn or is_decoder_norm
+        elif scope == 'pretrained_decoder':
+            param.requires_grad = 'pretrained' in name and '.decoder.' in name
+        else:
+            raise ValueError(f'Unsupported step2_train_scope: {scope}')
+
+        if param.requires_grad:
+            trainable.append(name)
+
+    print(f'[信息]阶段二训练范围 {scope}, 可训练参数张量数量: {len(trainable)}')
+    for name in trainable[:30]:
+        print(f'[信息]  trainable: {name}')
+    if len(trainable) > 30:
+        print(f'[信息]  ... 其余 {len(trainable) - 30} 个参数张量省略')
+
+def has_auxiliary_loss(enhancement_config):
+    if not enhancement_config:
+        return False
+    return (
+        enhancement_config.get('semantic_alignment', {}).get('enabled', False)
+        or enhancement_config.get('hidden_distillation', {}).get('enabled', False)
+        or enhancement_config.get('noise_contrast', {}).get('enabled', False)
+    )
+
+def has_neuroguide(enhancement_config):
+    return bool(enhancement_config and enhancement_config.get('neuro_guide', {}).get('enabled', False))
+
+def freeze_neuroguide_after_step1(model, enhancement_config):
+    if not has_neuroguide(enhancement_config):
+        return
+    neuro_config = enhancement_config.get('neuro_guide', {})
+    if not neuro_config.get('freeze_after_step1', True):
+        return
+
+    frozen = 0
+    for name, param in model.named_parameters():
+        if 'neuro_guide' in name:
+            param.requires_grad = False
+            frozen += param.numel()
+    print(f'[信息] Stage2 冻结 NeuroGuide 参数: {frozen}')
+
+def freeze_attribute_heads_step2(model, enhancement_config):
+    if not has_neuroguide(enhancement_config):
+        return
+    neuro_config = enhancement_config.get('neuro_guide', {})
+    if not neuro_config.get('freeze_attribute_heads_step2', False):
+        return
+
+    head_names = (
+        'sentiment_classifier',
+        'topic_classifier',
+        'length_regressor',
+        'surprisal_regressor',
+    )
+    frozen = 0
+    for name, param in model.named_parameters():
+        if any(head_name in name for head_name in head_names):
+            param.requires_grad = False
+            frozen += param.numel()
+    print(f'[信息] Stage2 冻结属性头参数: {frozen}')
 
 def train_model(dataloaders, 
                 device, 
                 model, 
                 tokenizer, 
                 dataset_sizes,
+                criterion, 
                 optimizer, 
                 scheduler, 
                 num_epochs=20, 
                 checkpoint_path_best = './checkpoints/decoder/best/decoder.pt', 
                 checkpoint_path_last = './checkpoints/decoder/last/decoder.pt',
-                loss_type='norm'):
+                loss_type='combined'):
     since = time.time()
     best_model_weights = state_dict_to_cpu(model.state_dict())
     best_loss = 1e12
@@ -52,17 +191,68 @@ def train_model(dataloaders,
             aux_metric_sums = {}
             aux_metric_counts = {}
 
-            for inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels in tqdm(dataloaders[phase]):
+            for batch in tqdm(dataloaders[phase]):
+                alignment_target_ids = None
+                topic_labels = None
+                length_values = None
+                surprisal_values = None
+                if len(batch) >= 13:
+                    (
+                        inputs,
+                        seq_len,
+                        masks,
+                        invert_masks,
+                        target_ids,
+                        target_mask,
+                        sentiment_labels,
+                        prior_ids,
+                        alignment_target_ids,
+                        _,
+                        topic_labels,
+                        length_values,
+                        surprisal_values,
+                    ) = batch[:13]
+                    prior_ids_batch = prior_ids.to(device)
+                elif len(batch) >= 10:
+                    inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels, prior_ids, alignment_target_ids, _ = batch[:10]
+                    prior_ids_batch = prior_ids.to(device)
+                elif len(batch) == 8:
+                    inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels, prior_ids = batch
+                    prior_ids_batch = prior_ids.to(device)
+                else:
+                    inputs, seq_len, masks, invert_masks, target_ids, target_mask, sentiment_labels = batch
+                    prior_ids_batch = None
                 inputs_batch = inputs.to(device).float()
+                seq_len_batch = seq_len.to(device)
                 masks_batch = masks.to(device)
                 invert_masks_batch = invert_masks.to(device)
                 target_ids_batch = target_ids.to(device)
+                alignment_target_ids_batch = None if alignment_target_ids is None else alignment_target_ids.to(device)
+                sentiment_labels_batch = sentiment_labels.to(device)
+                topic_labels_batch = None if topic_labels is None else topic_labels.to(device)
+                length_values_batch = None if length_values is None else length_values.to(device)
+                surprisal_values_batch = None if surprisal_values is None else surprisal_values.to(device)
                 # torch会自动忽略标签为-100的token
                 target_ids_batch[target_ids_batch == tokenizer.pad_token_id] = -100
+                if alignment_target_ids_batch is not None:
+                    alignment_target_ids_batch[alignment_target_ids_batch == tokenizer.pad_token_id] = -100
 
                 optimizer.zero_grad(set_to_none=True)
                 with torch.set_grad_enabled(phase == 'train'):
-                    output = model(inputs_batch, masks_batch, invert_masks_batch, target_ids_batch, loss_type=loss_type)
+                    output = model(
+                        inputs_batch,
+                        masks_batch,
+                        invert_masks_batch,
+                        target_ids_batch,
+                        loss_type=loss_type,
+                        prior_ids_batch=prior_ids_batch,
+                        seq_len_batch=seq_len_batch,
+                        sentiment_labels_batch=sentiment_labels_batch,
+                        topic_labels_batch=topic_labels_batch,
+                        length_values_batch=length_values_batch,
+                        surprisal_values_batch=surprisal_values_batch,
+                        alignment_target_ids_batch=alignment_target_ids_batch,
+                    )
                     loss = output.loss
                     aux_loss_dict = getattr(output, 'aux_loss_dict', {})
                     for aux_name, aux_value in aux_loss_dict.items():
@@ -141,6 +331,10 @@ if __name__ == '__main__':
     load_step1_checkpoint = args['load_step1_checkpoint']
     stepone_checkpoint = args['stepone_checkpoint']
     use_random_init = args['use_random_init']
+    global_use_mtv = args.get('use_mtv', False)
+    global_mtv_path = args.get('mtv_path', None)
+    global_mtv_variant_keys = args.get('mtv_variant_keys', None)
+    global_mtv_include_original = args.get('mtv_include_original', False)
     if use_random_init and skip_step_one:
         step2_lr = 5*1e-4
 
@@ -192,6 +386,20 @@ if __name__ == '__main__':
         has_enhancement_config = 'enhancement' in arg_experiment
         enhancement_config = arg_experiment.get('enhancement', None)
         enhancement_name = get_enhancement_name(enhancement_config)
+        mtv_config = arg_experiment.get('mtv', {})
+        if isinstance(mtv_config, bool):
+            mtv_enabled = mtv_config
+            mtv_path = global_mtv_path
+            mtv_variant_keys = global_mtv_variant_keys
+            mtv_include_original = global_mtv_include_original
+        else:
+            mtv_enabled = bool(mtv_config.get('enabled', global_use_mtv))
+            mtv_path = mtv_config.get('path', global_mtv_path)
+            mtv_variant_keys = mtv_config.get('variant_keys', global_mtv_variant_keys)
+            mtv_include_original = bool(mtv_config.get('include_original', global_mtv_include_original))
+        neuro_config = (enhancement_config or {}).get('neuro_guide', {})
+        attribute_path = neuro_config.get('attribute_path', None)
+        require_semkey_attributes = bool(neuro_config.get('require_semkey_attributes', False))
         pretrained_dict = MODEL_REGISTRY[pretrained_name]
         encoder_dict = ENCODER_REGISTRY[encoder_name]
         print('#' * 50)
@@ -200,7 +408,11 @@ if __name__ == '__main__':
         print('#' * 50)
 
         """独立实验结果保存路径设置"""
+        print(f'[信息] MTV: enabled={mtv_enabled}, path={mtv_path}, include_original={mtv_include_original}')
+
         save_suffix = f'_{enhancement_name}' if has_enhancement_config else ''
+        if mtv_enabled:
+            save_suffix = f'{save_suffix}_mtv'
         save_path = os.path.join(save_dir, f'{pretrained_name}_{encoder_name}_{train_input}{save_suffix}')
         if not os.path.exists(save_path):
             os.makedirs(save_path)
@@ -241,7 +453,14 @@ if __name__ == '__main__':
                                  eeg_type=eeg_type_choice, 
                                  bands=bands_choice, 
                                  setting=setting, 
-                                 test_input=train_input)
+                                 test_input=train_input,
+                                 task_name=task_name,
+                                 use_mtv=mtv_enabled,
+                                 mtv_path=mtv_path,
+                                 mtv_variant_keys=mtv_variant_keys,
+                                 mtv_include_original=mtv_include_original,
+                                 attribute_path=attribute_path,
+                                 require_semkey_attributes=require_semkey_attributes)
         # dev dataset
         dev_set = ZuCo_dataset(whole_dataset_dicts, 
                                'eval', 
@@ -250,22 +469,29 @@ if __name__ == '__main__':
                                eeg_type=eeg_type_choice, 
                                bands=bands_choice, 
                                setting=setting, 
-                               test_input=train_input)
+                               test_input=train_input,
+                               task_name=task_name,
+                               attribute_path=attribute_path,
+                               require_semkey_attributes=require_semkey_attributes)
     
         dataset_sizes = {'train': len(train_set), 'eval': len(dev_set)}
         print('[信息]训练集数量: ', len(train_set))
         print('[信息]验证集数量: ', len(dev_set))
     
-        train_dataloader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
+        train_dataloader = DataLoader(
+            train_set,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=4,
+            drop_last=has_neuroguide(enhancement_config),
+        )
         needs_batched_eval = enhancement_config and (
             enhancement_config.get('noise_contrast', {}).get('enabled', False)
             or enhancement_config.get('semantic_alignment', {}).get('enabled', False)
             or enhancement_config.get('hidden_distillation', {}).get('enabled', False)
+            or has_neuroguide(enhancement_config)
         )
-        if needs_batched_eval:
-            eval_batch_size = batch_size
-        else:
-            eval_batch_size = 1
+        eval_batch_size = batch_size if needs_batched_eval else 1
         val_dataloader = DataLoader(dev_set, batch_size=eval_batch_size, shuffle=False, num_workers=4)
         dataloaders = {'train':train_dataloader, 'eval':val_dataloader}
 
@@ -283,27 +509,41 @@ if __name__ == '__main__':
         # 编码器设置
         encoder = CLASS_MAP[encoder_dict['model']](**encoder_dict['args'])
         model = Decoder(pretrained_name, pretrained, encoder, tokenizer, enhancement_config=enhancement_config)
+        if has_neuroguide(enhancement_config):
+            stats = train_set.get_semkey_regression_stats()
+            model.set_semkey_attribute_stats(**stats)
+            print(
+                '[信息] SemKey regression stats: '
+                f"length={stats['length_mean']:.4f}±{stats['length_std']:.4f}, "
+                f"surprisal={stats['surprisal_mean']:.4f}±{stats['surprisal_std']:.4f}, "
+                f"has_surprisal={stats['has_surprisal']}"
+            )
         model.to(device)
         model = torch.nn.DataParallel(model, device_ids=device_ids)
 
         """阶段一训练: 先冻结预训练模型部分权重，单独训练编码器和线性层"""
-        for name, param in model.named_parameters():
-            if "pretrained" in name:
-                param.requires_grad = False
-        # if pretrained_name == 'Bart' or pretrained_name == 'T5' or pretrained_name == 'Pegasus':
-        #     for name, param in model.named_parameters():
-        #         if param.requires_grad and 'pretrained' in name:
-        #             if ('shared' in name) or ('embed_positions' in name) or ('encoder.layers.0' in name):
-        #                 continue
-        #             else:
-        #                 param.requires_grad = False
-        # elif pretrained_name == 'Bert':
-        #     for name, param in model.named_parameters():
-        #         if param.requires_grad and 'pretrained' in name:
-        #             if ('embeddings' in name) or ('encoder.layer.0' in name):
-        #                 continue
-        #             else:
-        #                 param.requires_grad = False
+        if pretrained_name == 'Bart' or pretrained_name == 'T5' or pretrained_name == 'Pegasus':
+            for name, param in model.named_parameters():
+                if param.requires_grad and 'pretrained' in name:
+                    if ('shared' in name) or ('embed_positions' in name) or ('encoder.layers.0' in name):
+                        continue
+                    else:
+                        param.requires_grad = False
+        elif pretrained_name == 'Bert':
+            for name, param in model.named_parameters():
+                if param.requires_grad and 'pretrained' in name:
+                    if ('embeddings' in name) or ('encoder.layer.0' in name):
+                        continue
+                    else:
+                        param.requires_grad = False
+
+        if has_neuroguide(enhancement_config):
+            frozen_pretrained = 0
+            for name, param in model.named_parameters():
+                if 'pretrained' in name:
+                    param.requires_grad = False
+                    frozen_pretrained += param.numel()
+            print(f'[信息] NeuroGuide Stage1 冻结 pretrained LLM 参数: {frozen_pretrained}')
     
         if skip_step_one:
             step1_metrics = {
@@ -321,64 +561,52 @@ if __name__ == '__main__':
                 print('跳过阶段一训练，直接进入阶段二训练 ...')
         else:
             optimizer_step1 = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=step1_lr, momentum=0.9)
-            exp_lr_scheduler_step1 = lr_scheduler.StepLR(optimizer_step1, step_size=50, gamma=0.8)
+            exp_lr_scheduler_step1 = lr_scheduler.StepLR(optimizer_step1, step_size=10, gamma=0.8)
+            criterion = nn.CrossEntropyLoss()
             print('[信息]开始阶段一训练 ...')
             model, step1_metrics = train_model(dataloaders, 
                                                device, 
                                                model,
                                                tokenizer,
                                                dataset_sizes,
+                                               criterion, 
                                                optimizer_step1, 
                                                exp_lr_scheduler_step1, 
                                                num_epochs=num_epochs_step1, 
-                                               checkpoint_path_best=output_checkpoint_name_best, 
-                                               checkpoint_path_last=output_checkpoint_name_last,
-                                               loss_type='aux')
-            
-            # 保存step1训练结束后的模型检查点
-            save_path_step1 = os.path.join(save_path, 'step1')
-            if not os.path.exists(save_path_step1):
-                os.makedirs(save_path_step1)
-            step1_ckpt_path = os.path.join(save_path_step1, f'{save_name}_step1.pt')
-            torch.save(model.state_dict(), step1_ckpt_path)
-            print(f'[信息]阶段一训练完成，模型已保存至: {step1_ckpt_path}')
-
+                                               checkpoint_path_best = output_checkpoint_name_best, 
+                                               checkpoint_path_last = output_checkpoint_name_last,
+                                               loss_type='neuro_stage1' if has_neuroguide(enhancement_config) else ('aux' if has_auxiliary_loss(enhancement_config) else 'combined'))
             release_cuda_memory(optimizer_step1, exp_lr_scheduler_step1)
 
         """阶段二训练: 更新整个模型进行几次迭代"""
-        # for name, param in model.named_parameters():
-        #     if "pretrained" in name:
-        #         param.requires_grad = False
-        #     else:
-        #         param.requires_grad = True
-        if pretrained_name == 'Bart' or pretrained_name == 'T5' or pretrained_name == 'Pegasus':
-            for name, param in model.named_parameters():
-                if param.requires_grad and 'pretrained' in name:
-                    if ('shared' in name) or ('embed_positions' in name) or ('encoder.layers.0' in name):
-                        continue
-                    else:
-                        param.requires_grad = False
-        elif pretrained_name == 'Bert':
-            for name, param in model.named_parameters():
-                if param.requires_grad and 'pretrained' in name:
-                    if ('embeddings' in name) or ('encoder.layer.0' in name):
-                        continue
-                    else:
-                        param.requires_grad = False
-        optimizer_step2 = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=step2_lr, momentum=0.9)
-        exp_lr_scheduler_step2 = lr_scheduler.StepLR(optimizer_step2, step_size=100, gamma=0.5)
+        model = apply_step2_lora_if_needed(model, enhancement_config, pretrained_name)
+        set_step2_train_scope(model, enhancement_config)
+        freeze_neuroguide_after_step1(model, enhancement_config)
+        freeze_attribute_heads_step2(model, enhancement_config)
+        optimizer_name_step2 = (enhancement_config or {}).get('stage2_optimizer', 'SGD')
+        if optimizer_name_step2 == 'AdamW':
+            optimizer_step2 = optim.AdamW(
+                filter(lambda p: p.requires_grad, model.parameters()),
+                lr=step2_lr,
+                weight_decay=(enhancement_config or {}).get('stage2_weight_decay', 0.01),
+            )
+        else:
+            optimizer_step2 = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=step2_lr, momentum=0.9)
+        exp_lr_scheduler_step2 = lr_scheduler.StepLR(optimizer_step2, step_size=5, gamma=0.85)
+        criterion = nn.CrossEntropyLoss()
         print('[信息]开始阶段二训练 ...')
         trained_model, step2_metrics = train_model(dataloaders, 
                                                    device, 
                                                    model,
                                                    tokenizer,
                                                    dataset_sizes,
+                                                   criterion, 
                                                    optimizer_step2, 
                                                    exp_lr_scheduler_step2, 
                                                    num_epochs=num_epochs_step2, 
                                                    checkpoint_path_best = output_checkpoint_name_best, 
                                                    checkpoint_path_last = output_checkpoint_name_last,
-                                                   loss_type='combined')
+                                                   loss_type='neuro_stage2' if has_neuroguide(enhancement_config) else (enhancement_config.get('step2_loss_type', 'combined') if enhancement_config else 'combined'))
 
         """统计模型参数量、检查点文件大小等信息，并写入Excel表格"""
         total_params, trainable_params = count_model_parameters(trained_model)
@@ -389,6 +617,8 @@ if __name__ == '__main__':
         sheet_name = f'{pretrained_name}_{encoder_name}_{train_input}'
         if enhancement_name != 'baseline':
             sheet_name = f'{sheet_name}_{enhancement_name}'
+        if mtv_enabled:
+            sheet_name = f'{sheet_name}_mtv'
 
         summary_metrics = {
             'experiment_name': save_name,
@@ -396,6 +626,9 @@ if __name__ == '__main__':
             'encoder': encoder_name,
             'train_input': train_input,
             'enhancement': enhancement_name,
+            'use_mtv': mtv_enabled,
+            'mtv_path': mtv_path,
+            'mtv_include_original': mtv_include_original,
             'freeze_pretrained_step2': should_freeze_pretrained_step2(enhancement_config),
             'contrast_negative_type': None if not enhancement_config else enhancement_config.get('noise_contrast', {}).get('negative_type'),
             'step1_time_sec': round(step1_metrics['train_time_sec'], 4),
@@ -506,6 +739,7 @@ if __name__ == '__main__':
             dataloaders,
             optimizer_step2,
             exp_lr_scheduler_step2,
+            criterion,
             step1_metrics,
             step2_metrics,
             sections,
