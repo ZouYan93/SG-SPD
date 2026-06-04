@@ -2,7 +2,7 @@
 
 [中文说明](README.md)
 
-SG-SPD is an EEG-to-text decoding framework for the ZuCo dataset. It supports standard encoder-decoder baselines and a full SG-SPD enhancement branch with a SemKey-style EEG encoder, semantic attribute prompts, two-stage training, LoRA-based stage-2 tuning, and EEG/noise grounding evaluation.
+SG-SPD is an EEG-to-text decoding framework for the ZuCo dataset. It supports standard encoder-decoder baselines and a full SG-SPD enhancement branch with a Signal-Guided EEG encoder, semantic attribute prompts, two-stage training, LoRA-based stage-2 tuning, and EEG/noise grounding evaluation.
 
 The same `train_decoder.py` and `eval_decoder.py` scripts can run either simple baselines or the full SG-SPD configuration by changing the experiment JSON.
 

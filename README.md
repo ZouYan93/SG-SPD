@@ -2,7 +2,7 @@
 
 [English README](README_en.md)
 
-SG-SPD 是一个面向 ZuCo 数据集的 EEG-to-Text 解码框架。项目支持普通 encoder-decoder baseline，也支持完整的 SG-SPD 增强分支，包括 SemKey 风格 EEG encoder、语义属性 prompt、两阶段训练、LoRA 阶段二微调，以及 EEG/noise 对照评估。
+SG-SPD 是一个面向 ZuCo 数据集的 EEG-to-Text 解码框架。项目支持普通 encoder-decoder baseline，也支持完整的 SG-SPD 增强分支，包括 语义引导的EEG encoder、语义属性 prompt、两阶段训练、LoRA 阶段二微调，以及 EEG/noise 对照评估。
 
 同一套 `train_decoder.py` 和 `eval_decoder.py` 可以通过修改实验 JSON 来运行简单 baseline 或完整 SG-SPD 配置。
 
